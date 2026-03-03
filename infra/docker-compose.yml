@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: human-engine-postgres
+    environment:
+      POSTGRES_USER: engine
+      POSTGRES_PASSWORD: engine
+      POSTGRES_DB: human_engine
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
