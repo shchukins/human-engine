@@ -5,13 +5,14 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str = Field(alias="DATABASE_URL")
+    strava_verify_token: str = Field(alias="STRAVA_VERIFY_TOKEN")
 
     class Config:
         env_file = ".env"
@@ -34,6 +35,15 @@ class EventOut(BaseModel):
     event_type: str
     payload: dict[str, Any]
     received_at: datetime
+
+class StravaWebhookChallenge(BaseModel):
+    hub_mode: str = Field(alias="hub.mode")
+    hub_challenge: str = Field(alias="hub.challenge")
+    hub_verify_token: str = Field(alias="hub.verify_token")
+
+
+class StravaWebhookChallengeResponse(BaseModel):
+    hub_challenge: str = Field(alias="hub.challenge")
 
 
 def get_conn():
@@ -112,5 +122,42 @@ def list_events(limit: int = Query(default=20, ge=1, le=200)):
             }
             for r in rows
         ]
+    except psycopg.Error as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+    
+    
+@app.get("/strava/webhook", response_model=StravaWebhookChallengeResponse)
+def strava_webhook_verify(
+    hub_mode: str = Query(alias="hub.mode"),
+    hub_challenge: str = Query(alias="hub.challenge"),
+    hub_verify_token: str = Query(alias="hub.verify_token"),
+):
+    # Strava ожидает JSON: {"hub.challenge": "<value>"}
+    if hub_verify_token != settings.strava_verify_token:
+        raise HTTPException(status_code=401, detail="invalid verify token")
+    return {"hub.challenge": hub_challenge}
+
+
+@app.post("/strava/webhook")
+async def strava_webhook_receive(request: Request):
+    payload = await request.json()
+
+    # Strava обычно присылает object_type, aspect_type, object_id, owner_id, updates и т.д.
+    event_type = payload.get("aspect_type", "webhook")
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO events (source, event_type, payload)
+                    VALUES (%s, %s, %s::jsonb)
+                    RETURNING id;
+                    """,
+                    ("strava", event_type, json.dumps(payload)),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        return {"ok": True, "event_id": row[0] if row else None}
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
