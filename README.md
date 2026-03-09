@@ -1,143 +1,136 @@
 # Human Engine
 
-Human Engine — система сбора и анализа тренировочных данных для моделирования адаптации человека к физической нагрузке.
+Human Engine — это экспериментальный сервис для анализа тренировочных данных спортсмена и моделирования адаптации организма к нагрузкам.
 
-Первая экспериментальная платформа — велотренировки.
+Проект строится как персональная аналитическая система поверх данных Strava, HealthKit и других источников.
 
-Проект собирает события из различных источников (Strava, HealthKit и др.), сохраняет их в базе данных и далее использует для анализа нагрузки, восстановления и прогнозирования формы.
-
----
-
-# Architecture
-Internet
-│
-│ https://api.shchlab.ru
-▼
-VPS (Beget)
-Caddy reverse proxy
-│
-│ Tailscale tunnel
-▼
-Home server (mini PC)
-
-Docker
-├─ backend (FastAPI)
-└─ postgres
-
-Домашний сервер выступает общим application server.  
-Human Engine — первый сервис, но инфраструктура остается нейтральной и может использоваться для других проектов.
+Основная идея — перейти от простого просмотра тренировок к моделированию состояния организма и прогнозу формы.
 
 ---
 
-# Stack
+## Что уже реализовано
+
+Сейчас в системе работает базовый pipeline загрузки тренировок из Strava.
+
+Strava отправляет webhook события при создании или обновлении активности.
+
+Эти события принимаются backend-сервисом и сохраняются в базу данных. Далее создается job, которая загружает сырые данные активности через API Strava.
+
+Pipeline сейчас выглядит так:
+
+Strava  
+↓  
+Webhook event  
+↓  
+/webhook/strava  
+↓  
+strava_webhook_event  
+↓  
+strava_activity_ingest_job  
+↓  
+worker  
+↓  
+Strava API  
+↓  
+strava_activity_raw
+
+Таким образом система уже умеет:
+
+• принимать события Strava  
+• сохранять события в базе  
+• ставить задачи на загрузку активности  
+• загружать сырые данные тренировок
+
+---
+
+## Архитектура сервиса
+
+Сервис состоит из нескольких компонентов.
+
+Backend  
+FastAPI приложение, которое принимает webhook события, управляет очередями загрузки данных и предоставляет API.
+
+Database  
+PostgreSQL используется для хранения событий, активностей и производных метрик.
+
+Worker  
+Фоновый процесс, который выполняет jobs по загрузке активностей из Strava.
+
+Reverse Proxy  
+Caddy используется как HTTPS gateway.
+
+---
+
+## Инфраструктура
+
+Система развернута на двух серверах.
+
+VPS  
+Используется как публичная точка входа.
+
+Функции VPS:
+
+• HTTPS termination  
+• reverse proxy  
+• публичный API endpoint
+
+Home server  
+На домашнем сервере работают:
+
+• backend  
+• postgres  
+• worker
+
+Связь между VPS и домашним сервером осуществляется через Tailscale (WireGuard VPN).
+
+Это позволяет не открывать домашний сервер напрямую в интернет.
+
+---
+
+## Текущий стек технологий
 
 Backend
 
-- FastAPI
-- Python
-- PostgreSQL
-- Docker
+FastAPI  
+Python  
+Uvicorn
+
+Database
+
+PostgreSQL
 
 Infrastructure
 
-- Ubuntu Server 24.04
-- Caddy
-- Tailscale
-- VPS (Beget)
-
-Monitoring
-
-- Telegram watchdog bot
-- database backups
+Docker  
+Docker Compose  
+Caddy  
+Tailscale
 
 ---
 
-# API
+## Домен
 
-Base URL
+API доступен по адресу
 
 https://api.shchlab.ru
 
 Health check
 
-GET /healthz
-
-Database check
-
-GET /dbz
-
-Create event
-
-POST /events
-
-Example
-
-curl -X POST https://api.shchlab.ru/events \
--H "Content-Type: application/json" \
--d '{
-  "source": "manual",
-  "event_type": "test",
-  "payload": { "message": "hello" }
-}'
-
-List events
-
-GET /events
-
-Strava webhook
-
-GET /strava/webhook  
-POST /strava/webhook
+https://api.shchlab.ru/healthz
 
 ---
 
-# Local development
+## Цель проекта
 
-Start services
+Human Engine исследует идею персональной модели адаптации спортсмена.
 
-docker compose up -d
+Планируется реализовать:
 
-Swagger docs
+• расчет тренировочной нагрузки  
+• моделирование адаптации  
+• прогноз формы  
+• выявление аномалий тренировок  
+• интеграцию с HealthKit  
+• визуализацию данных
 
-http://localhost:8000/docs
-
----
-
-# Production
-
-Public endpoint
-
-https://api.shchlab.ru
-
-Health check
-
-curl https://api.shchlab.ru/healthz
-
----
-
-# Monitoring
-
-Server monitoring via Telegram watchdog bot.
-
-Checks include:
-
-- CPU load
-- memory usage
-- disk usage
-- backend availability
-
-Database backups are created daily using pg_dump.
-
----
-
-# Project status
-
-v0.1
-
-Infrastructure deployed  
-PostgreSQL storage working  
-Event ingestion implemented  
-Public API available  
-HTTPS enabled via Let's Encrypt
-
-
+Проект находится на ранней стадии разработки.
