@@ -1,0 +1,192 @@
+# Human Engine
+
+Human Engine — это экспериментальный сервис для анализа тренировочных данных спортсмена и моделирования адаптации организма к нагрузкам.
+
+Проект строится как персональная аналитическая система поверх данных Strava, HealthKit и других источников.
+
+Основная идея — перейти от простого просмотра тренировок к моделированию состояния организма и прогнозу формы.
+
+---
+
+## Что уже реализовано
+
+Сейчас в системе работает базовый pipeline загрузки тренировок из Strava.
+
+Strava отправляет webhook события при создании или обновлении активности.
+
+Эти события принимаются backend-сервисом и сохраняются в базу данных. Далее создается job, которая загружает сырые данные активности через API Strava.
+
+Pipeline сейчас выглядит так:
+
+Strava  
+↓  
+Webhook event  
+↓  
+/webhook/strava  
+↓  
+strava_webhook_event  
+↓  
+strava_activity_ingest_job  
+↓  
+worker  
+↓  
+Strava API  
+↓  
+strava_activity_raw
+
+Таким образом система уже умеет:
+
+• принимать события Strava  
+• сохранять события в базе  
+• ставить задачи на загрузку активности  
+• загружать сырые данные тренировок
+
+---
+
+## Архитектура сервиса
+
+Сервис состоит из нескольких компонентов.
+
+Backend  
+FastAPI приложение, которое принимает webhook события, управляет очередями загрузки данных и предоставляет API.
+
+Database  
+PostgreSQL используется для хранения событий, активностей и производных метрик.
+
+Worker  
+Фоновый процесс, который выполняет jobs по загрузке активностей из Strava.
+
+Reverse Proxy  
+Caddy используется как HTTPS gateway.
+
+---
+
+## Инфраструктура
+
+Система развернута на двух серверах.
+
+VPS  
+Используется как публичная точка входа.
+
+Функции VPS:
+
+• HTTPS termination  
+• reverse proxy  
+• публичный API endpoint
+
+Home server  
+На домашнем сервере работают:
+
+• backend  
+• postgres  
+• worker
+
+Связь между VPS и домашним сервером осуществляется через Tailscale (WireGuard VPN).
+
+Это позволяет не открывать домашний сервер напрямую в интернет.
+
+---
+
+## Текущий стек технологий
+
+Backend
+
+FastAPI  
+Python  
+Uvicorn
+
+Database
+
+PostgreSQL
+
+Infrastructure
+
+Docker  
+Docker Compose  
+Caddy  
+Tailscale
+
+---
+
+## Домен
+
+API доступен по адресу
+
+https://api.shchlab.ru
+
+Health check
+
+https://api.shchlab.ru/healthz
+
+---
+
+## Цель проекта
+
+Human Engine исследует идею персональной модели адаптации спортсмена.
+
+Планируется реализовать:
+
+• расчет тренировочной нагрузки  
+• моделирование адаптации  
+• прогноз формы  
+• выявление аномалий тренировок  
+• интеграцию с HealthKit  
+• визуализацию данных
+
+Проект находится на ранней стадии разработки.
+
+
+## Run locally
+
+### Requirements
+
+- Docker
+- Docker Compose
+- Python 3.11+
+
+### 1. Clone repository
+
+git clone https://github.com/your-user/human-engine.git  
+cd human-engine/backend
+
+### 2. Create environment file
+
+Copy example configuration:
+
+cp infra/.env.example infra/.env
+
+Edit values if necessary.
+
+### 3. Start PostgreSQL
+
+cd infra  
+docker compose up -d
+
+PostgreSQL will start on:
+
+localhost:5433
+
+Database:
+
+human_engine
+
+### 4. Install backend dependencies
+
+cd ..
+
+python -m venv .venv  
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+### 5. Run backend
+
+uvicorn backend.app:app --reload
+
+API will be available at:
+
+http://localhost:8000
+
+Health check:
+
+http://localhost:8000/healthz
