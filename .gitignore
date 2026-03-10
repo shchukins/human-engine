@@ -1,7 +1,27 @@
-.env
-data/
+# macOS
+.DS_Store
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
 *.log
+
+# Runtime data
+data/
+
+# iOS
+DerivedData/
+*.xcuserstate
