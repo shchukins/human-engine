@@ -25,3 +25,6 @@ data/
 # iOS
 DerivedData/
 *.xcuserstate
+
+venv/
+*.png
