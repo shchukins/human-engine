@@ -28,6 +28,7 @@ from backend.services.strava_client import (
 )
 from backend.services.pipeline_service import process_activity_pipeline
 from backend.services.ingest_service import process_one_strava_ingest_job
+from backend.services.ai_service import AIServiceError, ai_service
 
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
@@ -55,6 +56,34 @@ class StravaWebhookChallenge(BaseModel):
 class StravaWebhookChallengeResponse(BaseModel):
     hub_challenge: str = Field(alias="hub.challenge")
 
+class AIChatRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    system_prompt: str | None = None
+    model: str | None = None
+
+
+class AIChatResponse(BaseModel):
+    model: str
+    response: str
+
+class AITaskFromIdeaRequest(BaseModel):
+    idea: str = Field(min_length=1)
+
+
+class AITaskFromIdeaResponse(BaseModel):
+    model: str
+    response: str
+
+class AIExplainMetricRequest(BaseModel):
+    metric_name: str = Field(min_length=1)
+    metric_value: str | None = None
+    context: str | None = None
+
+
+class AIExplainMetricResponse(BaseModel):
+    model: str
+    response: str
+
 
 @app.get("/healthz")
 def healthz():
@@ -71,6 +100,40 @@ def dbz():
         return {"db": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+
+@app.post("/ai/chat", response_model=AIChatResponse)
+async def ai_chat(payload: AIChatRequest):
+    try:
+        result = await ai_service.generate(
+            prompt=payload.prompt,
+            system_prompt=payload.system_prompt,
+            model=payload.model,
+        )
+        return AIChatResponse(**result)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ai/task-from-idea", response_model=AITaskFromIdeaResponse)
+async def ai_task_from_idea(payload: AITaskFromIdeaRequest):
+    try:
+        result = await ai_service.task_from_idea(payload.idea)
+        return AITaskFromIdeaResponse(**result)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+@app.post("/ai/explain-metric", response_model=AIExplainMetricResponse)
+async def ai_explain_metric(payload: AIExplainMetricRequest):
+    try:
+        result = await ai_service.explain_metric(
+            metric_name=payload.metric_name,
+            metric_value=payload.metric_value,
+            context=payload.context,
+        )
+        return AIExplainMetricResponse(**result)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/events", response_model=EventOut)
