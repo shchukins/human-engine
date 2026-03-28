@@ -1,7 +1,7 @@
 import logging
 import time
 
-from backend.app import process_one_strava_ingest_job
+from backend.services.ingest_service import process_one_strava_ingest_job
 
 
 logging.basicConfig(
