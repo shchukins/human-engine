@@ -6,6 +6,7 @@ from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import requests
@@ -1009,3 +1010,119 @@ def fitness_history(user_id: str, limit: int = 120):
 
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+@app.get("/strava/connect")
+def strava_connect(user_id: str):
+    scope = "activity:read_all"
+
+    authorize_url = (
+        "https://www.strava.com/oauth/authorize"
+        f"?client_id={settings.strava_client_id}"
+        f"&response_type=code"
+        f"&redirect_uri={settings.strava_redirect_uri}"
+        f"&approval_prompt=force"
+        f"&scope={scope}"
+        f"&state={user_id}"
+    )
+
+    return RedirectResponse(authorize_url)
+
+
+@app.get("/strava/callback")
+def strava_callback(
+    code: str | None = None,
+    scope: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    if error:
+        raise HTTPException(status_code=400, detail=f"strava auth error: {error}")
+
+    if not code:
+        raise HTTPException(status_code=400, detail="missing authorization code")
+
+    if not state:
+        raise HTTPException(status_code=400, detail="missing state/user_id")
+
+    accepted_scopes = set((scope or "").split(","))
+
+    if "activity:read_all" not in accepted_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"required scope not granted: activity:read_all; got={scope}",
+        )
+
+    response = requests.post(
+        "https://www.strava.com/oauth/token",
+        data={
+            "client_id": settings.strava_client_id,
+            "client_secret": settings.strava_client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+        },
+        timeout=30,
+    )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"strava token exchange failed {response.status_code}: {response.text[:300]}",
+        )
+
+    payload = response.json()
+
+    athlete = payload.get("athlete") or {}
+    strava_athlete_id = athlete.get("id")
+
+    if not strava_athlete_id:
+        raise HTTPException(status_code=502, detail="missing athlete id in token exchange response")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into user_strava_connection (
+                    user_id,
+                    strava_athlete_id,
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                    scope,
+                    created_at,
+                    updated_at
+                )
+                values (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    to_timestamp(%s),
+                    %s,
+                    now(),
+                    now()
+                )
+                on conflict (user_id) do update set
+                    strava_athlete_id = excluded.strava_athlete_id,
+                    access_token = excluded.access_token,
+                    refresh_token = excluded.refresh_token,
+                    scope = excluded.scope,
+                    expires_at = excluded.expires_at,
+                    updated_at = now();
+                """,
+                (
+                    state,
+                    strava_athlete_id,
+                    payload["access_token"],
+                    payload["refresh_token"],
+                    payload["expires_at"],
+                    scope,
+                ),
+            )
+            conn.commit()
+
+    return {
+        "ok": True,
+        "user_id": state,
+        "strava_athlete_id": strava_athlete_id,
+        "scope": sorted(list(accepted_scopes)),
+    }
