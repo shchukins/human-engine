@@ -25,6 +25,8 @@ from backend.services.strava_client import (
     fetch_activity_streams,
     list_activities,
 )
+from backend.services.pipeline_service import process_activity_pipeline
+
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
 
@@ -253,6 +255,8 @@ async def strava_webhook_receive(request: Request):
 
 
 
+
+
 def process_one_strava_ingest_job() -> dict[str, Any]:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -287,17 +291,38 @@ def process_one_strava_ingest_job() -> dict[str, Any]:
                 """,
                 (job_id,),
             )
-
             conn.commit()
 
-    access_token, _, _ = refresh_strava_token_if_needed(user_id)
-
     try:
-        activity = fetch_activity(
-            access_token=access_token,
+        result = process_activity_pipeline(
+            user_id=user_id,
+            athlete_id=athlete_id,
             activity_id=activity_id,
         )
-    except HTTPException as e:
+
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update strava_activity_ingest_job
+                    set status = 'done',
+                        finished_at = now(),
+                        last_error = null
+                    where id = %s;
+                    """,
+                    (job_id,),
+                )
+                conn.commit()
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "activity_id": activity_id,
+            "name": result.get("name"),
+            "tss": result.get("tss"),
+        }
+
+    except Exception as e:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -308,119 +333,11 @@ def process_one_strava_ingest_job() -> dict[str, Any]:
                         last_error = %s
                     where id = %s;
                     """,
-                    (str(e.detail), job_id),
+                    (str(e)[:500], job_id),
                 )
                 conn.commit()
+
         raise
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into strava_activity_raw (
-                    user_id,
-                    strava_athlete_id,
-                    strava_activity_id,
-                    activity_type,
-                    name,
-                    start_date,
-                    timezone,
-                    distance_m,
-                    moving_time_s,
-                    elapsed_time_s,
-                    total_elevation_gain_m,
-                    average_speed_mps,
-                    max_speed_mps,
-                    average_heartrate,
-                    max_heartrate,
-                    average_watts,
-                    max_watts,
-                    weighted_average_watts,
-                    kilojoules,
-                    trainer,
-                    commute,
-                    manual,
-                    raw_json,
-                    fetched_at,
-                    updated_at,
-                    is_deleted
-                )
-                values (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s::jsonb, now(), now(), false
-                )
-                on conflict (strava_activity_id) do update set
-                    user_id = excluded.user_id,
-                    strava_athlete_id = excluded.strava_athlete_id,
-                    activity_type = excluded.activity_type,
-                    name = excluded.name,
-                    start_date = excluded.start_date,
-                    timezone = excluded.timezone,
-                    distance_m = excluded.distance_m,
-                    moving_time_s = excluded.moving_time_s,
-                    elapsed_time_s = excluded.elapsed_time_s,
-                    total_elevation_gain_m = excluded.total_elevation_gain_m,
-                    average_speed_mps = excluded.average_speed_mps,
-                    max_speed_mps = excluded.max_speed_mps,
-                    average_heartrate = excluded.average_heartrate,
-                    max_heartrate = excluded.max_heartrate,
-                    average_watts = excluded.average_watts,
-                    max_watts = excluded.max_watts,
-                    weighted_average_watts = excluded.weighted_average_watts,
-                    kilojoules = excluded.kilojoules,
-                    trainer = excluded.trainer,
-                    commute = excluded.commute,
-                    manual = excluded.manual,
-                    raw_json = excluded.raw_json,
-                    fetched_at = now(),
-                    updated_at = now(),
-                    is_deleted = false;
-                """,
-                (
-                    user_id,
-                    athlete_id,
-                    activity_id,
-                    activity.get("sport_type") or activity.get("type"),
-                    activity.get("name"),
-                    activity.get("start_date"),
-                    activity.get("timezone"),
-                    activity.get("distance"),
-                    activity.get("moving_time"),
-                    activity.get("elapsed_time"),
-                    activity.get("total_elevation_gain"),
-                    activity.get("average_speed"),
-                    activity.get("max_speed"),
-                    activity.get("average_heartrate"),
-                    activity.get("max_heartrate"),
-                    activity.get("average_watts"),
-                    activity.get("max_watts"),
-                    activity.get("weighted_average_watts"),
-                    activity.get("kilojoules"),
-                    activity.get("trainer"),
-                    activity.get("commute"),
-                    activity.get("manual"),
-                    json.dumps(activity),
-                ),
-            )
-
-            cur.execute(
-                """
-                update strava_activity_ingest_job
-                set status = 'done',
-                    finished_at = now(),
-                    last_error = null
-                where id = %s;
-                """,
-                (job_id,),
-            )
-            conn.commit()
-
-    return {
-        "ok": True,
-        "job_id": job_id,
-        "activity_id": activity_id,
-        "name": activity.get("name"),
-    }
 
 
 @app.post("/debug/strava/fetch-one")
@@ -959,83 +876,82 @@ def debug_list_strava_activities(user_id: str, per_page: int = 30, page: int = 1
 
 
 
+from backend.services.pipeline_service import process_activity_pipeline
+from backend.services.strava_auth import refresh_strava_token_if_needed
+from backend.services.strava_client import list_activities
+
 
 @app.post("/debug/backfill/recent/{user_id}")
-def debug_backfill_recent(user_id: str, per_page: int = 10, page: int = 1):
+def debug_backfill_recent(user_id: str, per_page: int = 5, page: int = 1):
     try:
         access_token, _, _ = refresh_strava_token_if_needed(user_id)
+
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select strava_athlete_id
+                    from user_strava_connection
+                    where user_id = %s;
+                    """,
+                    (user_id,),
+                )
+                athlete_row = cur.fetchone()
+
+                if not athlete_row:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"user_strava_connection not found for user_id={user_id}",
+                    )
+
+                athlete_id = athlete_row[0]
 
         activities = list_activities(
             access_token=access_token,
             per_page=per_page,
             page=page,
         )
-        processed = []
 
-        for item in activities:
-            activity_id = item.get("id")
-            if not activity_id:
-                continue
+        results = []
 
-            # 1. если activity_raw еще нет, создаем ingest job и сразу обрабатываем
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        select 1
-                        from strava_activity_raw
-                        where strava_activity_id = %s;
-                        """,
-                        (activity_id,),
-                    )
-                    exists_row = cur.fetchone()
+        for a in activities:
+            activity_id = a.get("id")
 
-                    if not exists_row:
-                        cur.execute(
-                            """
-                            insert into strava_activity_ingest_job (
-                                webhook_event_id,
-                                user_id,
-                                strava_athlete_id,
-                                strava_activity_id,
-                                reason,
-                                status
-                            )
-                            values (null, %s, %s, %s, 'backfill_recent', 'pending')
-                            on conflict do nothing;
-                            """,
-                            (user_id, strava_athlete_id, activity_id),
-                        )                        
-                        conn.commit()
+            try:
+                result = process_activity_pipeline(
+                    user_id=user_id,
+                    athlete_id=athlete_id,
+                    activity_id=activity_id,
+                )
 
-            # 2. пробуем подтянуть саму activity
-            process_one_strava_ingest_job()
+                results.append(
+                    {
+                        "activity_id": activity_id,
+                        "name": a.get("name"),
+                        "status": "ok",
+                        "tss": result.get("tss"),
+                    }
+                )
 
-            # 3. streams
-            debug_strava_fetch_streams(activity_id)
-
-            # 4. metrics
-            debug_compute_activity_metrics(activity_id)
-
-            processed.append(
-                {
-                    "activity_id": activity_id,
-                    "name": item.get("name"),
-                    "start_date": item.get("start_date"),
-                }
-            )
+            except Exception as e:
+                results.append(
+                    {
+                        "activity_id": activity_id,
+                        "name": a.get("name"),
+                        "status": "failed",
+                        "error": str(e)[:200],
+                    }
+                )
 
         return {
             "ok": True,
             "user_id": user_id,
-            "count": len(processed),
-            "activities": processed,
+            "count": len(results),
+            "results": results,
         }
 
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"http error: {e}")
-    except psycopg.Error as e:
-        raise HTTPException(status_code=500, detail=f"db error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/debug/load/recompute-all/{user_id}")
