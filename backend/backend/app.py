@@ -9,18 +9,22 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import requests
-
-class Settings(BaseSettings):
-    database_url: str = Field(alias="DATABASE_URL")
-    strava_verify_token: str = Field(alias="STRAVA_VERIFY_TOKEN")
-    strava_client_id: str = Field(alias="STRAVA_CLIENT_ID")
-    strava_client_secret: str = Field(alias="STRAVA_CLIENT_SECRET")
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
+from backend.config import settings
+from backend.db import get_conn
+from backend.services.strava_auth import refresh_strava_token_if_needed
+from backend.services.metrics_service import (
+    compute_deltas,
+    compute_hr_zones,
+    compute_power_metrics,
+    compute_power_zones,
+)
+from backend.services.fitness_service import recompute_fitness_state
+from backend.services.load_service import recompute_daily_load_all
+from backend.services.strava_client import (
+    fetch_activity,
+    fetch_activity_streams,
+    list_activities,
+)
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
 
@@ -46,10 +50,6 @@ class StravaWebhookChallenge(BaseModel):
 
 class StravaWebhookChallengeResponse(BaseModel):
     hub_challenge: str = Field(alias="hub.challenge")
-
-
-def get_conn():
-    return psycopg.connect(settings.database_url)
 
 
 @app.get("/healthz")
@@ -251,74 +251,7 @@ async def strava_webhook_receive(request: Request):
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
-def refresh_strava_token_if_needed(user_id: str) -> tuple[str, str, int]:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select access_token, refresh_token, extract(epoch from expires_at)::bigint
-                from user_strava_connection
-                where user_id = %s;
-                """,
-                (user_id,),
-            )
-            row = cur.fetchone()
 
-            if not row:
-                raise HTTPException(status_code=404, detail=f"strava connection not found for user_id={user_id}")
-
-            access_token, refresh_token, expires_at_unix = row
-
-    now_unix = int(datetime.utcnow().timestamp())
-
-    # Обновляем токен, если он уже истек или истечет меньше чем через 5 минут
-    if expires_at_unix > now_unix + 300:
-        return access_token, refresh_token, expires_at_unix
-
-    response = requests.post(
-        "https://www.strava.com/oauth/token",
-        data={
-            "client_id": settings.strava_client_id,
-            "client_secret": settings.strava_client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        },
-        timeout=30,
-    )
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"strava token refresh failed: {response.status_code}",
-        )
-
-    token_data = response.json()
-
-    new_access_token = token_data["access_token"]
-    new_refresh_token = token_data["refresh_token"]
-    new_expires_at_unix = token_data["expires_at"]
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                update user_strava_connection
-                set access_token = %s,
-                    refresh_token = %s,
-                    expires_at = to_timestamp(%s),
-                    updated_at = now()
-                where user_id = %s;
-                """,
-                (
-                    new_access_token,
-                    new_refresh_token,
-                    new_expires_at_unix,
-                    user_id,
-                ),
-            )
-            conn.commit()
-
-    return new_access_token, new_refresh_token, new_expires_at_unix
 
 def process_one_strava_ingest_job() -> dict[str, Any]:
     with get_conn() as conn:
@@ -359,13 +292,12 @@ def process_one_strava_ingest_job() -> dict[str, Any]:
 
     access_token, _, _ = refresh_strava_token_if_needed(user_id)
 
-    response = requests.get(
-        f"https://www.strava.com/api/v3/activities/{activity_id}",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=30,
-    )
-
-    if response.status_code != 200:
+    try:
+        activity = fetch_activity(
+            access_token=access_token,
+            activity_id=activity_id,
+        )
+    except HTTPException as e:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -376,16 +308,10 @@ def process_one_strava_ingest_job() -> dict[str, Any]:
                         last_error = %s
                     where id = %s;
                     """,
-                    (f"strava api status {response.status_code}: {response.text[:500]}", job_id),
+                    (str(e.detail), job_id),
                 )
                 conn.commit()
-
-        raise HTTPException(
-            status_code=502,
-            detail=f"strava api error {response.status_code}",
-        )
-
-    activity = response.json()
+        raise
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -497,7 +423,6 @@ def process_one_strava_ingest_job() -> dict[str, Any]:
     }
 
 
-
 @app.post("/debug/strava/fetch-one")
 def debug_strava_fetch_one():
     try:
@@ -532,23 +457,10 @@ def debug_strava_fetch_streams(activity_id: int):
 
         access_token, _, _ = refresh_strava_token_if_needed(user_id)
 
-        response = requests.get(
-            f"https://www.strava.com/api/v3/activities/{activity_id}/streams",
-            params={
-                "keys": "time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,grade_smooth",
-                "key_by_type": "true",
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=30,
+        streams = fetch_activity_streams(
+            access_token=access_token,
+            activity_id=activity_id,
         )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"strava streams api error {response.status_code}: {response.text[:300]}",
-            )
-
-        streams = response.json()
 
         saved = 0
 
@@ -721,47 +633,20 @@ def debug_compute_activity_metrics(activity_id: int):
                 detail=f"time stream not found for activity_id={activity_id}",
             )
 
-        def compute_deltas(times: list[int]) -> list[int]:
-            if len(times) < 2:
-                return [0] * len(times)
-
-            deltas: list[int] = []
-            for i in range(len(times)):
-                if i == 0:
-                    delta = times[1] - times[0]
-                else:
-                    delta = times[i] - times[i - 1]
-
-                if delta < 0:
-                    delta = 0
-                deltas.append(delta)
-
-            return deltas
-
-        def rolling_mean(values: list[float], window: int) -> list[float]:
-            if not values:
-                return []
-
-            result: list[float] = []
-            running_sum = 0.0
-
-            for i, value in enumerate(values):
-                running_sum += value
-
-                if i >= window:
-                    running_sum -= values[i - window]
-
-                current_window = min(i + 1, window)
-                result.append(running_sum / current_window)
-
-            return result
 
         deltas = compute_deltas(time_stream)
 
-        normalized_power = None
-        intensity_factor = None
-        variability_index = None
-        tss = None
+        power_metrics = compute_power_metrics(
+            watts_stream=watts_stream,
+            avg_power=avg_power,
+            ftp_watts=ftp_watts,
+            elapsed_time_s=elapsed_time_s,
+        )
+
+        normalized_power = power_metrics["normalized_power"]
+        intensity_factor = power_metrics["intensity_factor"]
+        variability_index = power_metrics["variability_index"]
+        tss = power_metrics["tss"]
 
         if watts_stream and ftp_watts and ftp_watts > 0:
             watts_values = [float(v) if v is not None else 0.0 for v in watts_stream]
@@ -789,55 +674,25 @@ def debug_compute_activity_metrics(activity_id: int):
             "z7": 0,
         }
 
-        if watts_stream:
-            for i in range(min(len(watts_stream), len(deltas))):
-                value = watts_stream[i]
-                delta = deltas[i]
+        power_zones = compute_power_zones(
+            watts_stream=watts_stream,
+            deltas=deltas,
+            power_z1_upper=power_z1_upper,
+            power_z2_upper=power_z2_upper,
+            power_z3_upper=power_z3_upper,
+            power_z4_upper=power_z4_upper,
+            power_z5_upper=power_z5_upper,
+            power_z6_upper=power_z6_upper,
+        )
 
-                if value is None:
-                    continue
-
-                if value <= power_z1_upper:
-                    power_zones["z1"] += delta
-                elif value <= power_z2_upper:
-                    power_zones["z2"] += delta
-                elif value <= power_z3_upper:
-                    power_zones["z3"] += delta
-                elif value <= power_z4_upper:
-                    power_zones["z4"] += delta
-                elif value <= power_z5_upper:
-                    power_zones["z5"] += delta
-                elif value <= power_z6_upper:
-                    power_zones["z6"] += delta
-                else:
-                    power_zones["z7"] += delta
-
-        hr_zones = {
-            "z1": 0,
-            "z2": 0,
-            "z3": 0,
-            "z4": 0,
-            "z5": 0,
-        }
-
-        if hr_stream:
-            for i in range(min(len(hr_stream), len(deltas))):
-                value = hr_stream[i]
-                delta = deltas[i]
-
-                if value is None:
-                    continue
-
-                if hr_z1_upper is not None and value <= hr_z1_upper:
-                    hr_zones["z1"] += delta
-                elif hr_z2_upper is not None and value <= hr_z2_upper:
-                    hr_zones["z2"] += delta
-                elif hr_z3_upper is not None and value <= hr_z3_upper:
-                    hr_zones["z3"] += delta
-                elif hr_z4_upper is not None and value <= hr_z4_upper:
-                    hr_zones["z4"] += delta
-                else:
-                    hr_zones["z5"] += delta
+        hr_zones = compute_hr_zones(
+            hr_stream=hr_stream,
+            deltas=deltas,
+            hr_z1_upper=hr_z1_upper,
+            hr_z2_upper=hr_z2_upper,
+            hr_z3_upper=hr_z3_upper,
+            hr_z4_upper=hr_z4_upper,
+        )
 
         metrics_json = {
             "source": "debug_metrics_v1",
@@ -1061,112 +916,7 @@ def debug_compute_daily_load(user_id: str, date_str: str):
 @app.post("/debug/fitness/recompute/{user_id}")
 def debug_recompute_fitness_state(user_id: str):
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    with bounds as (
-                        select min(date) as min_date, max(date) as max_date
-                        from daily_training_load
-                        where user_id = %s
-                    ),
-                    calendar as (
-                        select generate_series(
-                            (select min_date from bounds),
-                            (select max_date from bounds),
-                            interval '1 day'
-                        )::date as date
-                    )
-                    select
-                        c.date,
-                        coalesce(d.tss, 0) as daily_tss
-                    from calendar c
-                    left join daily_training_load d
-                      on d.user_id = %s
-                     and d.date = c.date
-                    order by c.date asc;
-                    """,
-                    (user_id, user_id),
-                )
-                rows = cur.fetchall()
-
-                if not rows:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"daily_training_load not found for user_id={user_id}",
-                    )
-
-        fitness_tau = 42.0
-        fatigue_tau = 7.0
-
-        fitness_signal = 0.0
-        fatigue_signal = 0.0
-
-        results = []
-
-        for row in rows:
-            day, daily_tss = row
-            daily_tss = float(daily_tss or 0)
-
-            fitness_signal = fitness_signal + (daily_tss - fitness_signal) / fitness_tau
-            fatigue_signal = fatigue_signal + (daily_tss - fatigue_signal) / fatigue_tau
-            freshness_signal = fitness_signal - fatigue_signal
-
-            results.append(
-                (
-                    user_id,
-                    day,
-                    daily_tss,
-                    fitness_signal,
-                    fatigue_signal,
-                    freshness_signal,
-                )
-            )
-
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    delete from daily_fitness_state
-                    where user_id = %s
-                      and model_version = 'v1';
-                    """,
-                    (user_id,),
-                )
-
-                for item in results:
-                    cur.execute(
-                        """
-                        insert into daily_fitness_state (
-                            user_id,
-                            date,
-                            daily_tss,
-                            fitness_signal,
-                            fatigue_signal,
-                            freshness_signal,
-                            model_version,
-                            computed_at
-                        )
-                        values (%s, %s, %s, %s, %s, %s, 'v1', now());
-                        """,
-                        item,
-                    )
-
-                conn.commit()
-
-        last_day = results[-1]
-
-        return {
-            "ok": True,
-            "user_id": user_id,
-            "days_processed": len(results),
-            "last_date": str(last_day[1]),
-            "last_daily_tss": last_day[2],
-            "last_fitness_signal": last_day[3],
-            "last_fatigue_signal": last_day[4],
-            "last_freshness_signal": last_day[5],
-        }
-
+        return recompute_fitness_state(user_id)
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
@@ -1176,23 +926,11 @@ def debug_list_strava_activities(user_id: str, per_page: int = 30, page: int = 1
     try:
         access_token, _, _ = refresh_strava_token_if_needed(user_id)
 
-        response = requests.get(
-            "https://www.strava.com/api/v3/athlete/activities",
-            params={
-                "per_page": per_page,
-                "page": page,
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=30,
+        activities = list_activities(
+            access_token=access_token,
+            per_page=per_page,
+            page=page,
         )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"strava list activities error {response.status_code}: {response.text[:300]}",
-            )
-
-        activities = response.json()
 
         result = []
         for item in activities:
@@ -1227,41 +965,11 @@ def debug_backfill_recent(user_id: str, per_page: int = 10, page: int = 1):
     try:
         access_token, _, _ = refresh_strava_token_if_needed(user_id)
 
-        response = requests.get(
-            "https://www.strava.com/api/v3/athlete/activities",
-            params={
-                "per_page": per_page,
-                "page": page,
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=30,
+        activities = list_activities(
+            access_token=access_token,
+            per_page=per_page,
+            page=page,
         )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"strava list activities error {response.status_code}: {response.text[:300]}",
-            )
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select strava_athlete_id
-                    from user_strava_connection
-                    where user_id = %s;
-                    """,
-                    (user_id,),
-                )
-                athlete_row = cur.fetchone()
-
-                if not athlete_row:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"user_strava_connection not found for user_id={user_id}",
-                    )
-
-                strava_athlete_id = athlete_row[0]
-        activities = response.json()
         processed = []
 
         for item in activities:
@@ -1333,93 +1041,7 @@ def debug_backfill_recent(user_id: str, per_page: int = 10, page: int = 1):
 @app.post("/debug/load/recompute-all/{user_id}")
 def debug_recompute_daily_load_all(user_id: str):
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select
-                        m.user_id,
-                        date(r.start_date) as day,
-                        count(*) as activities_count,
-                        coalesce(sum(m.duration_s), 0) as duration_s,
-                        coalesce(sum(m.distance_m), 0) as distance_m,
-                        coalesce(sum(m.elevation_gain_m), 0) as elevation_gain_m,
-                        coalesce(sum(m.work_kj), 0) as work_kj,
-                        coalesce(sum(m.tss), 0) as tss
-                    from activity_metrics m
-                    join strava_activity_raw r
-                      on r.strava_activity_id = m.strava_activity_id
-                    where m.user_id = %s
-                    group by m.user_id, date(r.start_date)
-                    order by day asc;
-                    """,
-                    (user_id,),
-                )
-                rows = cur.fetchall()
-
-                if not rows:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"no activity_metrics found for user_id={user_id}",
-                    )
-
-                for row in rows:
-                    (
-                        row_user_id,
-                        day,
-                        activities_count,
-                        duration_s,
-                        distance_m,
-                        elevation_gain_m,
-                        work_kj,
-                        tss,
-                    ) = row
-
-                    cur.execute(
-                        """
-                        insert into daily_training_load (
-                            user_id,
-                            date,
-                            activities_count,
-                            duration_s,
-                            distance_m,
-                            elevation_gain_m,
-                            work_kj,
-                            tss,
-                            computed_at
-                        )
-                        values (%s, %s, %s, %s, %s, %s, %s, %s, now())
-                        on conflict (user_id, date) do update set
-                            activities_count = excluded.activities_count,
-                            duration_s = excluded.duration_s,
-                            distance_m = excluded.distance_m,
-                            elevation_gain_m = excluded.elevation_gain_m,
-                            work_kj = excluded.work_kj,
-                            tss = excluded.tss,
-                            computed_at = now();
-                        """,
-                        (
-                            row_user_id,
-                            day,
-                            activities_count,
-                            duration_s,
-                            distance_m,
-                            elevation_gain_m,
-                            work_kj,
-                            tss,
-                        ),
-                    )
-
-                conn.commit()
-
-        return {
-            "ok": True,
-            "user_id": user_id,
-            "days_processed": len(rows),
-            "from_date": str(rows[0][1]),
-            "to_date": str(rows[-1][1]),
-        }
-
+        return recompute_daily_load_all(user_id)
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
