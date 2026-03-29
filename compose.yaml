@@ -16,6 +16,15 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: human-engine-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
   backend:
     build: ./backend
     container_name: human-engine-backend
@@ -23,9 +32,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     env_file:
       - .env
-    network_mode: host
+    ports:
+      - "8000:8000"
 
   worker:
     build: ./backend
@@ -34,11 +46,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     env_file:
       - .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     command: python -m backend.worker
 
 volumes:
   postgres_data:
+  ollama_data:
