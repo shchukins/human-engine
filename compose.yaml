@@ -51,7 +51,17 @@ services:
     env_file:
       - .env
     command: python -m backend.worker
-
+ 
+  telegram-bot:
+    build: ./backend
+    container_name: human-engine-telegram-bot
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - .env
+    command: python -m backend.bot
 volumes:
   postgres_data:
   ollama_data:
