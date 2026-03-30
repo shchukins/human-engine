@@ -28,3 +28,6 @@ DerivedData/
 
 venv/
 *.png
+
+# local database backups
+human_engine_before_pgvector.sql
