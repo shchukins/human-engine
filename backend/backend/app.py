@@ -29,6 +29,7 @@ from backend.services.strava_client import (
 from backend.services.pipeline_service import process_activity_pipeline
 from backend.services.ingest_service import process_one_strava_ingest_job
 from backend.services.ai_service import AIServiceError, ai_service
+from backend.services.embed_service import EmbedServiceError, embed_service
 
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
@@ -84,6 +85,79 @@ class AIExplainMetricResponse(BaseModel):
     model: str
     response: str
 
+class AITaskFromIdeaData(BaseModel):
+    title: str
+    goal: str
+    description: str
+    acceptance_criteria: list[str]
+
+
+class AITaskFromIdeaJSONResponse(BaseModel):
+    model: str
+    data: AITaskFromIdeaData
+
+
+class AIExplainMetricData(BaseModel):
+    metric: str
+    current_value: str
+    meaning: str
+    interpretation: str
+
+
+class AIExplainMetricJSONResponse(BaseModel):
+    model: str
+    data: AIExplainMetricData
+
+class AIRideBriefingRequest(BaseModel):
+    readiness: str
+    readiness_context: str | None = None
+    weather_summary: str | None = None
+    training_suggestion: str | None = None
+    checklist: list[str] | None = None
+    extra_notes: str | None = None
+
+
+class AIRideBriefingData(BaseModel):
+    title: str
+    summary: str
+    weather_note: str
+    training_note: str
+    checklist: list[str]
+    extra_note: str
+
+
+class AIRideBriefingResponse(BaseModel):
+    model: str
+    data: AIRideBriefingData
+
+
+class AIDocsIngestRequest(BaseModel):
+    source: str = Field(min_length=1)
+    external_id: str | None = None
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+
+
+class AIDocsIngestResponse(BaseModel):
+    document_id: int
+    chunks_count: int
+
+class AIQnADocsRequest(BaseModel):
+    question: str = Field(min_length=1)
+    top_k: int = Field(default=3, ge=1, le=10)
+
+
+class AIQnADocsChunk(BaseModel):
+    document_id: int
+    chunk_index: int
+    content: str
+
+
+class AIQnADocsResponse(BaseModel):
+    model: str
+    answer: str
+    chunks: list[AIQnADocsChunk]
+
 
 @app.get("/healthz")
 def healthz():
@@ -134,6 +208,162 @@ async def ai_explain_metric(payload: AIExplainMetricRequest):
         return AIExplainMetricResponse(**result)
     except AIServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ai/task-from-idea-json", response_model=AITaskFromIdeaJSONResponse)
+async def ai_task_from_idea_json(payload: AITaskFromIdeaRequest):
+    try:
+        result = await ai_service.task_from_idea_json(payload.idea)
+        return AITaskFromIdeaJSONResponse(**result)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ai/explain-metric-json", response_model=AIExplainMetricJSONResponse)
+async def ai_explain_metric_json(payload: AIExplainMetricRequest):
+    try:
+        result = await ai_service.explain_metric_json(
+            metric_name=payload.metric_name,
+            metric_value=payload.metric_value,
+            context=payload.context,
+        )
+        return AIExplainMetricJSONResponse(**result)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+
+
+
+def translate_checklist_items(items: list[str] | None) -> list[str]:
+    if not items:
+        return []
+
+    dictionary = {
+        "helmet": "Шлем",
+        "water bottle": "Бутылка с водой",
+        "mini pump": "Мини-насос",
+        "rear light": "Задний фонарь",
+        "front light": "Передний фонарь",
+        "gloves": "Перчатки",
+        "tool kit": "Набор инструментов",
+        "rain jacket": "Дождевик",
+    }
+
+    result = []
+    for item in items:
+        translated = dictionary.get(item.strip().lower(), item)
+        result.append(translated)
+    return result
+
+
+def localize_weather_summary(text: str | None) -> str:
+    if not text:
+        return "Нет данных о погоде."
+
+    result = text.strip()
+
+    replacements = {
+        "Dry": "Сухо",
+        "dry": "сухо",
+        "light wind": "легкий ветер",
+        "Light wind": "Легкий ветер",
+        "wind": "ветер",
+    }
+
+    for src, dst in replacements.items():
+        result = result.replace(src, dst)
+
+    return result
+
+
+def localize_training_suggestion(text: str | None) -> str:
+    if not text:
+        return "Нет данных о тренировке."
+
+    result = text.strip()
+
+    replacements = {
+        "Endurance ride": "Поездка на выносливость",
+        "endurance ride": "поездка на выносливость",
+        "Recovery ride": "Восстановительная поездка",
+        "recovery ride": "восстановительная поездка",
+        "Tempo ride": "Темповая поездка",
+        "tempo ride": "темповая поездка",
+        "minutes": "минут",
+        "minute": "минута",
+    }
+
+    for src, dst in replacements.items():
+        result = result.replace(src, dst)
+
+    return result
+
+
+def localize_extra_notes(text: str | None) -> str:
+    if not text:
+        return ""
+
+    result = text.strip()
+
+    if result.startswith("Sunset at "):
+        time_part = result.removeprefix("Sunset at ").strip()
+        return f"Закат в {time_part}."
+
+    return result
+
+def build_ride_briefing_data(payload: AIRideBriefingRequest) -> AIRideBriefingData:
+    checklist = translate_checklist_items(payload.checklist)
+
+    localized_weather = localize_weather_summary(payload.weather_summary)
+    localized_training = localize_training_suggestion(payload.training_suggestion)
+    localized_extra = localize_extra_notes(payload.extra_notes)
+
+    readiness_text = f"Готовность: {payload.readiness}."
+    weather_text = f"Погода: {localized_weather}."
+    training_text = f"Тренировка: {localized_training}."
+
+    summary = f"{readiness_text} {weather_text} {training_text}"
+
+    return AIRideBriefingData(
+        title="Брифинг перед поездкой",
+        summary=summary,
+        weather_note=localized_weather,
+        training_note=localized_training,
+        checklist=checklist,
+        extra_note=localized_extra,
+    )
+
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
+    text = text.strip()
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    text_len = len(text)
+
+    while start < text_len:
+        end = min(start + chunk_size, text_len)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        if end >= text_len:
+            break
+
+        start = max(0, end - overlap)
+
+    return chunks
+
+
+@app.post("/ai/ride-briefing-json", response_model=AIRideBriefingResponse)
+async def ai_ride_briefing(payload: AIRideBriefingRequest):
+    data = build_ride_briefing_data(payload)
+    return AIRideBriefingResponse(
+        model="deterministic",
+        data=data,
+    )
 
 
 @app.post("/events", response_model=EventOut)
@@ -1107,3 +1337,145 @@ def strava_callback(
         "strava_athlete_id": strava_athlete_id,
         "scope": sorted(list(accepted_scopes)),
     }
+
+@app.post("/ai/docs/ingest", response_model=AIDocsIngestResponse)
+async def ai_docs_ingest(payload: AIDocsIngestRequest):
+    chunks = chunk_text(payload.content)
+
+    if not chunks:
+        raise HTTPException(status_code=400, detail="Document content produced no chunks")
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO document (source, external_id, title, content)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        payload.source,
+                        payload.external_id,
+                        payload.title,
+                        payload.content,
+                    ),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=500, detail="Document insert failed")
+
+                document_id = row[0]
+
+                for idx, chunk in enumerate(chunks):
+                    embedding = await embed_service.embed_text(chunk)
+
+                    cur.execute(
+                        """
+                        INSERT INTO document_chunk (
+                            document_id,
+                            chunk_index,
+                            content,
+                            embedding
+                        )
+                        VALUES (%s, %s, %s, %s::vector);
+                        """,
+                        (
+                            document_id,
+                            idx,
+                            chunk,
+                            str(embedding),
+                        ),
+                    )
+
+                conn.commit()
+
+        return AIDocsIngestResponse(
+            document_id=document_id,
+            chunks_count=len(chunks),
+        )
+    except EmbedServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=500, detail=f"db error: {exc}") from exc
+    
+
+@app.post("/ai/qna-docs", response_model=AIQnADocsResponse)
+async def ai_qna_docs(payload: AIQnADocsRequest):
+    try:
+        question_embedding = await embed_service.embed_text(payload.question)
+
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        document_id,
+                        chunk_index,
+                        content
+                    FROM document_chunk
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s;
+                    """,
+                    (
+                        str(question_embedding),
+                        payload.top_k,
+                    ),
+                )
+                rows = cur.fetchall()
+
+        if not rows:
+            raise HTTPException(status_code=404, detail="No indexed document chunks found")
+
+        chunks = [
+            AIQnADocsChunk(
+                document_id=row[0],
+                chunk_index=row[1],
+                content=row[2],
+            )
+            for row in rows
+        ]
+
+        context_blocks = []
+        for chunk in chunks:
+            context_blocks.append(
+                f"[document_id={chunk.document_id}, chunk_index={chunk.chunk_index}]\n{chunk.content}"
+            )
+
+        context_text = "\n\n".join(context_blocks)
+
+        system_prompt = (
+            "You answer questions about project documentation. "
+            "Use only the provided context. "
+            "If the answer is not contained in the context, say so explicitly. "
+            "Do not invent facts."
+        )
+
+        prompt = f"""
+Answer the question using only the context below.
+
+Context:
+{context_text}
+
+Question:
+{payload.question}
+
+Required output:
+- Give a concise answer.
+- If the answer is not clearly present in the context, say that it was not found in the indexed documents.
+""".strip()
+
+        result = await ai_service.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+        )
+
+        return AIQnADocsResponse(
+            model=result["model"],
+            answer=result["response"],
+            chunks=chunks,
+        )
+    except EmbedServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=500, detail=f"db error: {exc}") from exc

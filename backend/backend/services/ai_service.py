@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+import json
 
 from backend.config import settings
 
@@ -127,6 +128,187 @@ Context:
             system_prompt=system_prompt,
         )
 
+    async def task_from_idea_json(self, idea: str) -> dict:
+        system_prompt = (
+            "You are an assistant for the Human Engine project. "
+            "Convert raw ideas into structured task descriptions. "
+            "Return only valid JSON. "
+            "Do not add markdown. "
+            "Do not add explanations outside JSON. "
+            "Use only information explicitly present in the idea. "
+            "Do not invent features, screens, integrations, channels, APIs, preferences, or hidden logic."
+        )
+
+        prompt = f"""
+Convert the idea into JSON.
+
+Strict rules:
+- Output must be valid JSON only.
+- No markdown.
+- No code fences.
+- Use only information explicitly present in the idea.
+- Do not add assumptions.
+- acceptance_criteria must contain exactly 3 items.
+- Each acceptance criterion must be short and directly traceable to the idea.
+
+Return JSON with this exact structure:
+{{
+  "title": "string",
+  "goal": "string",
+  "description": "string",
+  "acceptance_criteria": ["string", "string", "string"]
+}}
+
+Idea:
+{idea}
+""".strip()
+
+        result = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+        )
+
+        try:
+            parsed = json.loads(result["response"])
+        except json.JSONDecodeError as exc:
+            raise AIServiceError(f"Invalid JSON from model: {exc}") from exc
+
+        return {
+            "model": result["model"],
+            "data": parsed,
+        }
+
+    async def ride_briefing_json(
+        self,
+        readiness: str,
+        readiness_context: str | None,
+        weather_summary: str | None,
+        training_suggestion: str | None,
+        checklist: list[str] | None,
+        extra_notes: str | None,
+    ) -> dict:
+        system_prompt = (
+    "You are an assistant for the Human Engine project. "
+    "Generate a concise ride briefing in Russian. "
+    "Use only the provided inputs. "
+    "Do not invent advice, recommendations, interpretations, or new facts. "
+    "Do not infer clothing, intensity, safety guidance, or weather implications unless they are explicitly provided. "
+    "Return only valid JSON and nothing else."
+)
+
+        prompt = f"""
+Сформируй краткий ride briefing на русском языке.
+
+Строгие правила:
+- Ответ только в JSON.
+- Без markdown и без пояснений вне JSON.
+- Используй только переданные данные.
+- Не добавляй новые советы, интерпретации или рекомендации.
+- Не делай выводов из погоды, readiness или тренировки.
+- Если поле содержит английский текст, переведи его на русский максимально буквально и нейтрально.
+- Не изменяй смысл элементов checklist.
+- Не заменяй элементы checklist на другие предметы.
+- summary должно быть коротким объединением readiness, weather_summary и training_suggestion, без новых фактов.
+- weather_note должно перефразировать только weather_summary.
+- training_note должно перефразировать только training_suggestion.
+- extra_note должно перефразировать только extra_notes.
+- checklist должен содержать те же элементы, что пришли во входных данных.
+
+Формат ответа:
+{{
+  "title": "string",
+  "summary": "string",
+  "weather_note": "string",
+  "training_note": "string",
+  "checklist": ["string"],
+  "extra_note": "string"
+}}
+
+Данные:
+readiness: {readiness}
+readiness_context: {readiness_context or "not provided"}
+weather_summary: {weather_summary or "not provided"}
+training_suggestion: {training_suggestion or "not provided"}
+checklist: {checklist or []}
+extra_notes: {extra_notes or "not provided"}
+""".strip()
+
+        result = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+        )
+
+        try:
+            parsed = json.loads(result["response"])
+        except json.JSONDecodeError as exc:
+            raise AIServiceError(f"Invalid JSON from model: {exc}") from exc
+
+        return {
+            "model": result["model"],
+            "data": parsed,
+        }
+    
+    
+    async def explain_metric_json(
+        self,
+        metric_name: str,
+        metric_value: str | None = None,
+        context: str | None = None,
+    ) -> dict:
+        system_prompt = (
+            "You are an assistant for the Human Engine project. "
+            "Explain metrics in simple and clear language. "
+            "Return only valid JSON. "
+            "Do not add markdown. "
+            "Do not add explanations outside JSON. "
+            "Use only the information explicitly provided by the user. "
+            "Do not invent formulas, thresholds, physiology, medical meaning, or hidden logic."
+        )
+
+        prompt = f"""
+Explain the metric and return JSON.
+
+Strict rules:
+- Output must be valid JSON only.
+- No markdown.
+- No code fences.
+- Use only the provided inputs.
+- If context is missing, keep the explanation generic.
+- Do not invent formulas, thresholds, physiology, or recommendations.
+
+Return JSON with this exact structure:
+{{
+  "metric": "string",
+  "current_value": "string",
+  "meaning": "string",
+  "interpretation": "string"
+}}
+
+Metric name:
+{metric_name}
+
+Metric value:
+{metric_value or "not provided"}
+
+Context:
+{context or "not provided"}
+""".strip()
+
+        result = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+        )
+
+        try:
+            parsed = json.loads(result["response"])
+        except json.JSONDecodeError as exc:
+            raise AIServiceError(f"Invalid JSON from model: {exc}") from exc
+
+        return {
+            "model": result["model"],
+            "data": parsed,
+        }
+    
     def _build_prompt(self, prompt: str, system_prompt: str | None = None) -> str:
         if system_prompt:
             return f"System instruction:\n{system_prompt}\n\nUser request:\n{prompt}"
