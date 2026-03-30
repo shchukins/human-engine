@@ -199,7 +199,8 @@ TSS_HE vs TSS_Garmin
   "tss": 95,
   "rolling_window_sec": 30
 }
-'''
+```
+
 ---
 
 ## 12. Ограничения
