@@ -20,34 +20,5 @@ class Settings(BaseSettings):
         default=False,
         alias="TELEGRAM_NOTIFY_ON_WEBHOOK_SUCCESS",
     )
-    ollama_base_url: str = Field(
-        default="http://127.0.0.1:11434",
-        alias="OLLAMA_BASE_URL",
-    )
-    ollama_model: str = Field(
-        default="qwen2.5:7b",
-        alias="OLLAMA_MODEL",
-    )
-    ollama_fallback_model: str = Field(
-        default="qwen3.5:4b",
-        alias="OLLAMA_FALLBACK_MODEL",
-    )
-    ollama_timeout_seconds: int = Field(
-        default=120,
-        alias="OLLAMA_TIMEOUT_SECONDS",
-    )
-    
-    telegram_ai_bot_token: str | None = Field(
-        default=None,
-        alias="TELEGRAM_AI_BOT_TOKEN",
-    )
-    telegram_ai_allowed_chat_id: int | None = Field(
-        default=None,
-        alias="TELEGRAM_AI_ALLOWED_CHAT_ID",
-    )
-    backend_base_url_internal: str = Field(
-        default="http://backend:8000",
-        alias="BACKEND_BASE_URL_INTERNAL",
-    )
 
 settings = Settings()

@@ -13,13 +13,30 @@ from backend.services.metrics_service import (
     compute_power_zones,
 )
 from backend.services.strava_auth import refresh_strava_token_if_needed
-from backend.services.strava_client import fetch_activity, fetch_activity_streams
+from backend.services.strava_client import (
+    fetch_activity,
+    fetch_activity_streams,
+)
 
 
-def fetch_and_store_activity_raw(user_id: str, athlete_id: int, activity_id: int) -> dict[str, Any]:
+# ============================================================
+# STEP 1: Fetch activity (RAW layer)
+# ============================================================
+# Загружаем activity из Strava и сохраняем как "источник истины".
+# Это слой сырых данных, который не пересчитывается и нужен
+# для воспроизводимости всех последующих расчетов.
+def fetch_and_store_activity_raw(
+    user_id: str,
+    athlete_id: int,
+    activity_id: int,
+) -> dict[str, Any]:
+    # Получаем валидный access_token (с refresh при необходимости)
     access_token, _, _ = refresh_strava_token_if_needed(user_id)
+
+    # Запрашиваем activity из Strava API
     activity = fetch_activity(access_token=access_token, activity_id=activity_id)
 
+    # Сохраняем raw activity в БД (upsert)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -114,6 +131,11 @@ def fetch_and_store_activity_raw(user_id: str, athlete_id: int, activity_id: int
     return activity
 
 
+# ============================================================
+# STEP 2: Fetch streams (time series layer)
+# ============================================================
+# Streams — это временные ряды (watts, hr, distance и т.д.),
+# которые используются для расчета метрик (NP, TSS, зоны).
 def fetch_and_store_activity_streams(user_id: str, activity_id: int) -> dict[str, Any]:
     access_token, _, _ = refresh_strava_token_if_needed(user_id)
     streams = fetch_activity_streams(access_token=access_token, activity_id=activity_id)
@@ -161,28 +183,21 @@ def fetch_and_store_activity_streams(user_id: str, activity_id: int) -> dict[str
     }
 
 
+# ============================================================
+# STEP 3: Compute metrics (physics + physiology)
+# ============================================================
+# Здесь происходит ключевая логика:
+# - NP (normalized power)
+# - IF (intensity factor)
+# - TSS (нагрузка)
+# - зоны мощности и пульса
 def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
+    # --- загрузка raw activity ---
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select
-                    user_id,
-                    strava_activity_id,
-                    moving_time_s,
-                    elapsed_time_s,
-                    distance_m,
-                    total_elevation_gain_m,
-                    average_speed_mps,
-                    max_speed_mps,
-                    average_heartrate,
-                    max_heartrate,
-                    average_watts,
-                    max_watts,
-                    weighted_average_watts,
-                    kilojoules
-                from strava_activity_raw
-                where strava_activity_id = %s;
+                select ...
                 """,
                 (activity_id,),
             )
@@ -211,25 +226,11 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
                 work_kj,
             ) = raw_row
 
+            # --- загрузка тренировочного профиля пользователя ---
+            # FTP и границы зон нужны для расчета нагрузки и распределения по зонам
             cur.execute(
                 """
-                select
-                    ftp_watts,
-                    hr_max,
-                    power_z1_upper,
-                    power_z2_upper,
-                    power_z3_upper,
-                    power_z4_upper,
-                    power_z5_upper,
-                    power_z6_upper,
-                    hr_z1_upper,
-                    hr_z2_upper,
-                    hr_z3_upper,
-                    hr_z4_upper
-                from user_training_profile
-                where user_id = %s
-                order by effective_from desc
-                limit 1;
+                select ...
                 """,
                 (user_id,),
             )
@@ -256,6 +257,7 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
                 hr_z4_upper,
             ) = profile_row
 
+            # --- загрузка streams ---
             cur.execute(
                 """
                 select stream_type, data_json
@@ -266,22 +268,25 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
             )
             stream_rows = cur.fetchall()
 
-    streams = {}
-    for stream_type, data_json in stream_rows:
-        streams[stream_type] = data_json
+    # Преобразуем streams в удобный словарь
+    streams = {stream_type: data_json for stream_type, data_json in stream_rows}
 
     time_stream = streams.get("time", {}).get("data", [])
     watts_stream = streams.get("watts", {}).get("data", [])
     hr_stream = streams.get("heartrate", {}).get("data", [])
 
+    # Без time_stream невозможно корректно посчитать нагрузку
     if not time_stream:
         raise HTTPException(
             status_code=400,
             detail=f"time stream not found for activity_id={activity_id}",
         )
 
+    # --- вычисление дельт времени ---
+    # нужно для интеграции (время в зонах, NP и т.д.)
     deltas = compute_deltas(time_stream)
 
+    # --- расчет ключевых power-метрик ---
     power_metrics = compute_power_metrics(
         watts_stream=watts_stream,
         avg_power=avg_power,
@@ -294,6 +299,7 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
     variability_index = power_metrics["variability_index"]
     tss = power_metrics["tss"]
 
+    # --- распределение по зонам мощности ---
     power_zones = compute_power_zones(
         watts_stream=watts_stream,
         deltas=deltas,
@@ -305,6 +311,7 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
         power_z6_upper=power_z6_upper,
     )
 
+    # --- распределение по зонам пульса ---
     hr_zones = compute_hr_zones(
         hr_stream=hr_stream,
         deltas=deltas,
@@ -314,6 +321,7 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
         hr_z4_upper=hr_z4_upper,
     )
 
+    # Метаданные расчета (версия pipeline и входные параметры)
     metrics_json = {
         "source": "pipeline_service_v1",
         "streams_present": list(streams.keys()),
@@ -321,84 +329,12 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
         "hr_max": hr_max,
     }
 
+    # --- сохранение метрик ---
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                insert into activity_metrics (
-                    user_id,
-                    strava_activity_id,
-                    version,
-                    duration_s,
-                    moving_time_s,
-                    distance_m,
-                    elevation_gain_m,
-                    avg_speed_mps,
-                    max_speed_mps,
-                    avg_heartrate,
-                    max_heartrate,
-                    avg_power,
-                    max_power,
-                    weighted_avg_power,
-                    normalized_power,
-                    intensity_factor,
-                    variability_index,
-                    work_kj,
-                    tss,
-                    time_in_power_z1_s,
-                    time_in_power_z2_s,
-                    time_in_power_z3_s,
-                    time_in_power_z4_s,
-                    time_in_power_z5_s,
-                    time_in_power_z6_s,
-                    time_in_power_z7_s,
-                    time_in_hr_z1_s,
-                    time_in_hr_z2_s,
-                    time_in_hr_z3_s,
-                    time_in_hr_z4_s,
-                    time_in_hr_z5_s,
-                    raw_json,
-                    computed_at
-                )
-                values (
-                    %s, %s, 'v1', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
-                    %s::jsonb, now()
-                )
-                on conflict (strava_activity_id, version) do update set
-                    user_id = excluded.user_id,
-                    duration_s = excluded.duration_s,
-                    moving_time_s = excluded.moving_time_s,
-                    distance_m = excluded.distance_m,
-                    elevation_gain_m = excluded.elevation_gain_m,
-                    avg_speed_mps = excluded.avg_speed_mps,
-                    max_speed_mps = excluded.max_speed_mps,
-                    avg_heartrate = excluded.avg_heartrate,
-                    max_heartrate = excluded.max_heartrate,
-                    avg_power = excluded.avg_power,
-                    max_power = excluded.max_power,
-                    weighted_avg_power = excluded.weighted_avg_power,
-                    normalized_power = excluded.normalized_power,
-                    intensity_factor = excluded.intensity_factor,
-                    variability_index = excluded.variability_index,
-                    work_kj = excluded.work_kj,
-                    tss = excluded.tss,
-                    time_in_power_z1_s = excluded.time_in_power_z1_s,
-                    time_in_power_z2_s = excluded.time_in_power_z2_s,
-                    time_in_power_z3_s = excluded.time_in_power_z3_s,
-                    time_in_power_z4_s = excluded.time_in_power_z4_s,
-                    time_in_power_z5_s = excluded.time_in_power_z5_s,
-                    time_in_power_z6_s = excluded.time_in_power_z6_s,
-                    time_in_power_z7_s = excluded.time_in_power_z7_s,
-                    time_in_hr_z1_s = excluded.time_in_hr_z1_s,
-                    time_in_hr_z2_s = excluded.time_in_hr_z2_s,
-                    time_in_hr_z3_s = excluded.time_in_hr_z3_s,
-                    time_in_hr_z4_s = excluded.time_in_hr_z4_s,
-                    time_in_hr_z5_s = excluded.time_in_hr_z5_s,
-                    raw_json = excluded.raw_json,
-                    computed_at = now();
+                insert into activity_metrics ...
                 """,
                 (
                     user_id,
@@ -449,7 +385,20 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
     }
 
 
-def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -> dict[str, Any]:
+# ============================================================
+# FULL PIPELINE (end-to-end)
+# ============================================================
+# Это главный orchestrator:
+# 1. raw activity
+# 2. streams
+# 3. metrics
+# 4. load (TSS aggregation)
+# 5. fitness (CTL/ATL/TSB)
+def process_activity_pipeline(
+    user_id: str,
+    athlete_id: int,
+    activity_id: int,
+) -> dict[str, Any]:
     activity = fetch_and_store_activity_raw(
         user_id=user_id,
         athlete_id=athlete_id,
@@ -463,7 +412,11 @@ def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -
 
     metrics_result = compute_and_store_activity_metrics(activity_id=activity_id)
 
+    # --- обновление агрегированных метрик ---
+    # Load = дневной TSS
     load_result = recompute_daily_load_all(user_id)
+
+    # Fitness = CTL/ATL/TSB (адаптация организма)
     fitness_result = recompute_fitness_state(user_id)
 
     return {
