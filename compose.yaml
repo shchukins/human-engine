@@ -16,15 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: human-engine-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-
   backend:
     build: ./backend
     container_name: human-engine-backend
@@ -32,8 +23,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
     env_file:
       - .env
     ports:
@@ -46,22 +35,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
     env_file:
       - .env
     command: python -m backend.worker
- 
-  telegram-bot:
-    build: ./backend
-    container_name: human-engine-telegram-bot
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_started
-    env_file:
-      - .env
-    command: python -m backend.bot
+
 volumes:
   postgres_data:
-  ollama_data:

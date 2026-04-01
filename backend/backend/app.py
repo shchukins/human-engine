@@ -5,31 +5,30 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
-import requests
+
 from backend.config import settings
 from backend.db import get_conn
-from backend.services.strava_auth import refresh_strava_token_if_needed
+from backend.services.fitness_service import recompute_fitness_state
+from backend.services.ingest_service import process_one_strava_ingest_job
+from backend.services.load_service import recompute_daily_load_all
 from backend.services.metrics_service import (
     compute_deltas,
     compute_hr_zones,
     compute_power_metrics,
     compute_power_zones,
+    rolling_mean,
 )
-from backend.services.fitness_service import recompute_fitness_state
-from backend.services.load_service import recompute_daily_load_all
+from backend.services.pipeline_service import process_activity_pipeline
+from backend.services.strava_auth import refresh_strava_token_if_needed
 from backend.services.strava_client import (
     fetch_activity,
     fetch_activity_streams,
     list_activities,
 )
-from backend.services.pipeline_service import process_activity_pipeline
-from backend.services.ingest_service import process_one_strava_ingest_job
-from backend.services.ai_service import AIServiceError, ai_service
-from backend.services.embed_service import EmbedServiceError, embed_service
 
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
@@ -48,65 +47,10 @@ class EventOut(BaseModel):
     payload: dict[str, Any]
     received_at: datetime
 
-class StravaWebhookChallenge(BaseModel):
-    hub_mode: str = Field(alias="hub.mode")
-    hub_challenge: str = Field(alias="hub.challenge")
-    hub_verify_token: str = Field(alias="hub.verify_token")
-
 
 class StravaWebhookChallengeResponse(BaseModel):
     hub_challenge: str = Field(alias="hub.challenge")
 
-class AIChatRequest(BaseModel):
-    prompt: str = Field(min_length=1)
-    system_prompt: str | None = None
-    model: str | None = None
-
-
-class AIChatResponse(BaseModel):
-    model: str
-    response: str
-
-class AITaskFromIdeaRequest(BaseModel):
-    idea: str = Field(min_length=1)
-
-
-class AITaskFromIdeaResponse(BaseModel):
-    model: str
-    response: str
-
-class AIExplainMetricRequest(BaseModel):
-    metric_name: str = Field(min_length=1)
-    metric_value: str | None = None
-    context: str | None = None
-
-
-class AIExplainMetricResponse(BaseModel):
-    model: str
-    response: str
-
-class AITaskFromIdeaData(BaseModel):
-    title: str
-    goal: str
-    description: str
-    acceptance_criteria: list[str]
-
-
-class AITaskFromIdeaJSONResponse(BaseModel):
-    model: str
-    data: AITaskFromIdeaData
-
-
-class AIExplainMetricData(BaseModel):
-    metric: str
-    current_value: str
-    meaning: str
-    interpretation: str
-
-
-class AIExplainMetricJSONResponse(BaseModel):
-    model: str
-    data: AIExplainMetricData
 
 class AIRideBriefingRequest(BaseModel):
     readiness: str
@@ -131,34 +75,6 @@ class AIRideBriefingResponse(BaseModel):
     data: AIRideBriefingData
 
 
-class AIDocsIngestRequest(BaseModel):
-    source: str = Field(min_length=1)
-    external_id: str | None = None
-    title: str = Field(min_length=1)
-    content: str = Field(min_length=1)
-
-
-class AIDocsIngestResponse(BaseModel):
-    document_id: int
-    chunks_count: int
-
-class AIQnADocsRequest(BaseModel):
-    question: str = Field(min_length=1)
-    top_k: int = Field(default=3, ge=1, le=10)
-
-
-class AIQnADocsChunk(BaseModel):
-    document_id: int
-    chunk_index: int
-    content: str
-
-
-class AIQnADocsResponse(BaseModel):
-    model: str
-    answer: str
-    chunks: list[AIQnADocsChunk]
-
-
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -172,67 +88,8 @@ def dbz():
                 cur.execute("SELECT 1;")
                 cur.fetchone()
         return {"db": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"db error: {e}")
-
-
-@app.post("/ai/chat", response_model=AIChatResponse)
-async def ai_chat(payload: AIChatRequest):
-    try:
-        result = await ai_service.generate(
-            prompt=payload.prompt,
-            system_prompt=payload.system_prompt,
-            model=payload.model,
-        )
-        return AIChatResponse(**result)
-    except AIServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-@app.post("/ai/task-from-idea", response_model=AITaskFromIdeaResponse)
-async def ai_task_from_idea(payload: AITaskFromIdeaRequest):
-    try:
-        result = await ai_service.task_from_idea(payload.idea)
-        return AITaskFromIdeaResponse(**result)
-    except AIServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-@app.post("/ai/explain-metric", response_model=AIExplainMetricResponse)
-async def ai_explain_metric(payload: AIExplainMetricRequest):
-    try:
-        result = await ai_service.explain_metric(
-            metric_name=payload.metric_name,
-            metric_value=payload.metric_value,
-            context=payload.context,
-        )
-        return AIExplainMetricResponse(**result)
-    except AIServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-@app.post("/ai/task-from-idea-json", response_model=AITaskFromIdeaJSONResponse)
-async def ai_task_from_idea_json(payload: AITaskFromIdeaRequest):
-    try:
-        result = await ai_service.task_from_idea_json(payload.idea)
-        return AITaskFromIdeaJSONResponse(**result)
-    except AIServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-@app.post("/ai/explain-metric-json", response_model=AIExplainMetricJSONResponse)
-async def ai_explain_metric_json(payload: AIExplainMetricRequest):
-    try:
-        result = await ai_service.explain_metric_json(
-            metric_name=payload.metric_name,
-            metric_value=payload.metric_value,
-            context=payload.context,
-        )
-        return AIExplainMetricJSONResponse(**result)
-    except AIServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"db error: {exc}")
 
 
 def translate_checklist_items(items: list[str] | None) -> list[str]:
@@ -250,7 +107,7 @@ def translate_checklist_items(items: list[str] | None) -> list[str]:
         "rain jacket": "Дождевик",
     }
 
-    result = []
+    result: list[str] = []
     for item in items:
         translated = dictionary.get(item.strip().lower(), item)
         result.append(translated)
@@ -312,6 +169,7 @@ def localize_extra_notes(text: str | None) -> str:
 
     return result
 
+
 def build_ride_briefing_data(payload: AIRideBriefingRequest) -> AIRideBriefingData:
     checklist = translate_checklist_items(payload.checklist)
 
@@ -334,28 +192,6 @@ def build_ride_briefing_data(payload: AIRideBriefingRequest) -> AIRideBriefingDa
         extra_note=localized_extra,
     )
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
-    text = text.strip()
-    if not text:
-        return []
-
-    chunks = []
-    start = 0
-    text_len = len(text)
-
-    while start < text_len:
-        end = min(start + chunk_size, text_len)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-
-        if end >= text_len:
-            break
-
-        start = max(0, end - overlap)
-
-    return chunks
-
 
 @app.post("/ai/ride-briefing-json", response_model=AIRideBriefingResponse)
 async def ai_ride_briefing(payload: AIRideBriefingRequest):
@@ -364,35 +200,6 @@ async def ai_ride_briefing(payload: AIRideBriefingRequest):
         model="deterministic",
         data=data,
     )
-
-
-@app.post("/events", response_model=EventOut)
-def create_event(event: EventIn):
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO events (source, event_type, payload)
-                    VALUES (%s, %s, %s::jsonb)
-                    RETURNING id, source, event_type, payload, received_at;
-                    """,
-                    (event.source, event.event_type, json.dumps(event.payload)),
-                )
-                row = cur.fetchone()
-                if not row:
-                    raise HTTPException(status_code=500, detail="insert failed")
-                conn.commit()
-
-        return {
-            "id": row[0],
-            "source": row[1],
-            "event_type": row[2],
-            "payload": row[3],
-            "received_at": row[4],
-        }
-    except psycopg.Error as e:
-        raise HTTPException(status_code=500, detail=f"db error: {e}")
 
 
 @app.get("/events", response_model=list[EventOut])
@@ -550,8 +357,6 @@ async def strava_webhook_receive(request: Request):
 
 
 
-
-
 @app.post("/debug/strava/fetch-one")
 def debug_strava_fetch_one():
     try:
@@ -560,6 +365,7 @@ def debug_strava_fetch_one():
         raise HTTPException(status_code=502, detail=f"http error: {e}")
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.post("/debug/strava/fetch-streams/{activity_id}")
 def debug_strava_fetch_streams(activity_id: int):
@@ -1088,11 +894,6 @@ def debug_list_strava_activities(user_id: str, per_page: int = 30, page: int = 1
 
 
 
-from backend.services.pipeline_service import process_activity_pipeline
-from backend.services.strava_auth import refresh_strava_token_if_needed
-from backend.services.strava_client import list_activities
-
-
 @app.post("/debug/backfill/recent/{user_id}")
 def debug_backfill_recent(user_id: str, per_page: int = 5, page: int = 1):
     try:
@@ -1337,145 +1138,3 @@ def strava_callback(
         "strava_athlete_id": strava_athlete_id,
         "scope": sorted(list(accepted_scopes)),
     }
-
-@app.post("/ai/docs/ingest", response_model=AIDocsIngestResponse)
-async def ai_docs_ingest(payload: AIDocsIngestRequest):
-    chunks = chunk_text(payload.content)
-
-    if not chunks:
-        raise HTTPException(status_code=400, detail="Document content produced no chunks")
-
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO document (source, external_id, title, content)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id;
-                    """,
-                    (
-                        payload.source,
-                        payload.external_id,
-                        payload.title,
-                        payload.content,
-                    ),
-                )
-                row = cur.fetchone()
-                if not row:
-                    raise HTTPException(status_code=500, detail="Document insert failed")
-
-                document_id = row[0]
-
-                for idx, chunk in enumerate(chunks):
-                    embedding = await embed_service.embed_text(chunk)
-
-                    cur.execute(
-                        """
-                        INSERT INTO document_chunk (
-                            document_id,
-                            chunk_index,
-                            content,
-                            embedding
-                        )
-                        VALUES (%s, %s, %s, %s::vector);
-                        """,
-                        (
-                            document_id,
-                            idx,
-                            chunk,
-                            str(embedding),
-                        ),
-                    )
-
-                conn.commit()
-
-        return AIDocsIngestResponse(
-            document_id=document_id,
-            chunks_count=len(chunks),
-        )
-    except EmbedServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except psycopg.Error as exc:
-        raise HTTPException(status_code=500, detail=f"db error: {exc}") from exc
-    
-
-@app.post("/ai/qna-docs", response_model=AIQnADocsResponse)
-async def ai_qna_docs(payload: AIQnADocsRequest):
-    try:
-        question_embedding = await embed_service.embed_text(payload.question)
-
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT
-                        document_id,
-                        chunk_index,
-                        content
-                    FROM document_chunk
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s;
-                    """,
-                    (
-                        str(question_embedding),
-                        payload.top_k,
-                    ),
-                )
-                rows = cur.fetchall()
-
-        if not rows:
-            raise HTTPException(status_code=404, detail="No indexed document chunks found")
-
-        chunks = [
-            AIQnADocsChunk(
-                document_id=row[0],
-                chunk_index=row[1],
-                content=row[2],
-            )
-            for row in rows
-        ]
-
-        context_blocks = []
-        for chunk in chunks:
-            context_blocks.append(
-                f"[document_id={chunk.document_id}, chunk_index={chunk.chunk_index}]\n{chunk.content}"
-            )
-
-        context_text = "\n\n".join(context_blocks)
-
-        system_prompt = (
-            "You answer questions about project documentation. "
-            "Use only the provided context. "
-            "If the answer is not contained in the context, say so explicitly. "
-            "Do not invent facts."
-        )
-
-        prompt = f"""
-Answer the question using only the context below.
-
-Context:
-{context_text}
-
-Question:
-{payload.question}
-
-Required output:
-- Give a concise answer.
-- If the answer is not clearly present in the context, say that it was not found in the indexed documents.
-""".strip()
-
-        result = await ai_service.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-        )
-
-        return AIQnADocsResponse(
-            model=result["model"],
-            answer=result["response"],
-            chunks=chunks,
-        )
-    except EmbedServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except psycopg.Error as exc:
-        raise HTTPException(status_code=500, detail=f"db error: {exc}") from exc
