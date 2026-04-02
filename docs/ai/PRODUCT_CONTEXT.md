@@ -1,34 +1,160 @@
 # Product Context
 
-## What Human Engine is
+## 1. What Human Engine is
 
-Human Engine analyzes training-related data, estimates athlete state, evaluates readiness, and helps support workout decisions.
+Human Engine — система анализа тренировочных данных и состояния человека.
 
-The core idea:
-the right workout on the right day.
+Система:
 
-## What the product is not
+- собирает данные о тренировках  
+- оценивает физиологическое состояние  
+- рассчитывает readiness  
+- помогает выбрать нагрузку  
 
-- not just a training log
-- not just a dashboard
-- not an opaque AI coach
-- not a system where LLM replaces core physiology or readiness logic
+Ключевая идея:
 
-## Current product priorities
+> правильная тренировка в правильный день
 
-- reliable backend foundation
-- explicit and deterministic domain logic
-- stable data ingestion
-- inspectable metrics and readiness logic
-- practical user-facing outputs
+---
 
-## Role of AI in the product
+## 2. System role
 
-AI is currently auxiliary.
-It may help with:
-- text generation
-- documentation Q&A
-- metric explanation
-- task drafting
+Human Engine — это не просто хранилище данных.
 
-AI should not become the hidden decision engine of the system.
+Это:
+
+- decision-support system  
+- physiology-driven model  
+- reproducible analytics pipeline  
+
+Система должна:
+
+- давать объяснимые результаты  
+- работать детерминированно  
+- быть проверяемой  
+
+---
+
+## 3. What the product is NOT
+
+Human Engine не является:
+
+- просто тренировочным логом  
+- визуальным дашбордом без логики  
+- AI-тренером  
+- black-box системой  
+- системой, где решения принимаются LLM  
+
+AI не должен становиться ядром системы.
+
+---
+
+## 4. Core architecture principle
+
+Система строится вокруг разделения:
+
+### Deterministic core
+
+- ingestion данных  
+- расчет метрик  
+- readiness logic  
+- prediction logic  
+
+Требования:
+
+- явная логика  
+- воспроизводимость  
+- проверяемость  
+
+### AI layer (auxiliary)
+
+AI может использоваться для:
+
+- генерации текста  
+- объяснения метрик  
+- навигации по документации  
+- помощи разработчику  
+
+AI не участвует в:
+
+- расчете метрик  
+- принятии решений  
+- изменении доменной логики  
+
+---
+
+## 5. Current product focus
+
+Текущий этап:
+
+- стабилизация backend  
+- упрощение архитектуры  
+- устранение AI из core  
+- формирование надежного data pipeline  
+
+Система должна сначала стать:
+
+- корректной  
+- предсказуемой  
+- устойчивой  
+
+и только потом — умной.
+
+---
+
+## 6. Data → Model → Decision flow
+
+Общий поток:
+
+Data ingestion  
+↓  
+Data storage  
+↓  
+Feature extraction  
+↓  
+Physiology model  
+↓  
+Readiness  
+↓  
+Recommendation  
+
+Этот поток должен оставаться:
+
+- прозрачным  
+- трассируемым  
+- воспроизводимым  
+
+---
+
+## 7. Design constraints
+
+При развитии системы:
+
+Нельзя:
+
+- заменять детерминированную логику LLM  
+- вводить скрытые вычисления  
+- смешивать AI и core-логику  
+- усложнять архитектуру без необходимости  
+
+Можно:
+
+- упрощать  
+- делать явные модели  
+- улучшать наблюдаемость  
+- добавлять проверяемость  
+
+---
+
+## 8. Expected behavior of contributors / AI
+
+Любые изменения должны:
+
+- сохранять deterministic core  
+- не нарушать архитектурные границы  
+- быть объяснимыми  
+- быть проверяемыми  
+
+Если возникает сомнение:
+
+предпочтение всегда отдается простой и явной логике.

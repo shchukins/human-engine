@@ -1,21 +1,171 @@
 # System Map
 
-## Main flow
+## 1. Purpose
 
+Human Engine — система, которая:
+
+> преобразует тренировочные данные в решение о нагрузке
+
+---
+
+## 2. End-to-end flow
 Data Sources
--> Data Engine
--> Physiology Model
--> Readiness Engine
--> Prediction Engine
--> Adaptive Training Scheduler
--> Workout Recommendation
--> Workout Outcome
--> Feedback and Learning Engine
+↓
+Data Engine
+↓
+Data Storage
+↓
+Feature Extraction
+↓
+Physiology Model
+↓
+Readiness Engine
+↓
+Prediction Engine (future)
+↓
+Recommendation
+↓
+Workout Outcome
+↓
+Feedback
+↓
+Model update
 
-## Current implementation direction
+---
 
-The long-term map is broader than the current implementation.
-At the current stage:
-- backend and data foundations matter most
-- deterministic services are preferred
-- AI is a helper layer, not the main system core
+## 3. Layer breakdown
+
+### 3.1 Data layer
+
+Отвечает за получение и хранение данных.
+
+Включает:
+
+- Strava webhook  
+- ingestion pipeline  
+- raw data storage  
+
+Свойства:
+
+- данные не теряются  
+- данные не искажаются  
+
+---
+
+### 3.2 Processing layer
+
+Преобразует данные в признаки.
+
+- feature extraction  
+- расчет базовых метрик  
+
+---
+
+### 3.3 Modeling layer
+
+Оценивает состояние человека.
+
+- physiology model  
+- training load  
+- fitness / fatigue  
+
+---
+
+### 3.4 Decision layer
+
+Формирует вывод системы.
+
+- readiness  
+- recommendation  
+- ride briefing  
+
+---
+
+### 3.5 Feedback loop
+
+Система обучается на результате:
+
+- фактическая тренировка  
+- отклонение от прогноза  
+- корректировка модели  
+
+---
+
+## 4. Key properties
+
+Система должна быть:
+
+### Deterministic
+- одинаковый вход → одинаковый результат  
+
+### Reproducible
+- любой расчет можно повторить  
+
+### Observable
+- можно объяснить результат  
+
+---
+
+## 5. What is NOT part of the core flow
+
+Не входит в основной pipeline:
+
+- LLM  
+- генеративные модели  
+- AI-решения  
+
+AI может работать только как:
+
+- слой объяснения  
+- инструмент навигации  
+- developer assistant  
+
+---
+
+## 6. Mental model
+
+Human Engine — это не один алгоритм.
+
+Это цепочка:
+
+> данные → состояние → решение
+
+Если система дает неправильный результат:
+
+ошибка всегда находится в одном из слоев:
+
+- данные  
+- признаки  
+- модель  
+- логика решения  
+
+---
+
+## 7. Current vs Future
+
+### Сейчас:
+
+- ingestion pipeline  
+- raw data  
+- базовая архитектура  
+
+### Далее:
+
+- feature layer  
+- physiology model  
+- readiness  
+- prediction  
+- adaptive training  
+
+---
+
+## 8. Simplification rule
+
+При развитии системы:
+
+> каждый новый элемент должен вписываться в эту схему
+
+Если не вписывается:
+
+- либо он лишний  
+- либо схема нарушена  

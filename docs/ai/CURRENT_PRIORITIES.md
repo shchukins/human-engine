@@ -1,168 +1,192 @@
 # Current Priorities
 
-## 1. Strategic direction
+## 1. Current phase
 
-Human Engine is currently in a phase of stabilization and simplification.
+Human Engine находится в фазе:
 
-Key decision:
-focus on a reliable deterministic core first, and treat AI as an external or experimental layer.
+> стабилизация и упрощение системы
 
-The goal is not to build "AI-first", but to build a correct system with optional AI augmentation.
+Основной фокус:
 
----
-
-## 2. Immediate priorities (now)
-
-### 2.1 Simplify backend
-
-- remove or disable AI endpoints from backend:
-  - /ai/chat
-  - /ai/task-from-idea
-  - /ai/explain-metric
-  - /ai/qna-docs (temporary)
-- remove Ollama service from docker-compose
-- keep backend focused on:
-  - data ingestion
-  - storage
-  - deterministic services
-  - API
+- убрать лишнюю сложность  
+- сделать поведение системы предсказуемым  
+- зафиксировать архитектурные границы  
 
 ---
 
-### 2.2 Preserve deterministic logic
+## 2. Core principle
 
-- ride briefing must remain deterministic
-- readiness logic must remain explicit and inspectable
-- no LLM inside core decision-making
+Главное правило:
 
----
+> сначала корректная система, потом усложнение
 
-### 2.3 Clean architecture boundaries
+Приоритет:
 
-Separate clearly:
-
-Human Engine core:
-- backend
-- postgres
-- domain logic
-- deterministic outputs
-
-AI / RAG:
-- separate tool or service
-- not required for system to function
+- deterministic logic  
+- простота  
+- наблюдаемость  
 
 ---
 
-## 3. RAG direction (experimental)
+## 3. What is priority NOW
 
-RAG is currently treated as a developer tool, not a product feature.
+### 3.1 Backend simplification
 
-### 3.1 Move RAG to local environment (Mac)
+- удалить AI endpoints  
+- убрать зависимость от Ollama  
+- сохранить только core функциональность  
 
-- build RAG outside of main backend
-- run locally for fast iteration
-- index:
-  - docs
-  - code
-  - later GitHub issues
+Backend должен выполнять:
 
-### 3.2 Goals for RAG v1
-
-- answer questions about the system
-- help navigate codebase
-- surface relevant documents
-- improve developer productivity
-
-### 3.3 Non-goals
-
-- do not integrate RAG deeply into backend yet
-- do not rely on RAG for product decisions
-- do not expose RAG as user-facing feature
+- ingestion  
+- хранение данных  
+- deterministic расчеты  
+- API  
 
 ---
 
-## 4. Engineering workflow improvement
+### 3.2 Deterministic core
 
-### 4.1 Introduce AI-assisted development (Codex)
+Критически важно:
 
-- use Codex in VS Code as coding assistant
-- agent works with repo context via:
-  - AGENTS.md
-  - docs/ai/*
-- agent may:
-  - read code
-  - modify files
-  - propose changes
+- readiness logic должна быть явной  
+- ride briefing должен быть детерминированным  
+- никакой скрытой логики  
 
-### 4.2 Safety model
+Нельзя:
 
-- no direct commits to main
-- use branches / diffs / PRs
-- human review required for all changes
+- переносить логику в LLM  
+- заменять формулы текстом  
 
 ---
 
-## 5. Knowledge management
+### 3.3 Architecture boundaries
 
-Move important knowledge from chats into repo:
+Жесткое разделение:
 
-- product context
-- architecture decisions
-- system map
-- glossary
-- open questions
+Core:
 
-Goal:
-repository becomes the single source of truth.
+- backend  
+- postgres  
+- доменная логика  
+
+AI:
+
+- отдельный слой  
+- не влияет на расчеты  
 
 ---
 
-## 6. Near-term technical improvements
+## 4. RAG (experimental direction)
+
+RAG рассматривается как:
+
+> инструмент разработчика, не продукт
+
+### Цели:
+
+- навигация по коду  
+- ответы по документации  
+- ускорение разработки  
+
+### Ограничения:
+
+- не интегрировать в backend  
+- не использовать для принятия решений  
+- не делать user-facing feature  
+
+---
+
+## 5. Engineering workflow
+
+### AI-assisted development
+
+Используется как инструмент:
+
+- анализ кода  
+- генерация изменений  
+- помощь в документации  
+
+Но:
+
+- без прямых коммитов  
+- только через PR  
+- с обязательной проверкой  
+
+---
+
+## 6. Knowledge management
+
+Репозиторий = источник истины
+
+Не хранить знания в чатах.
+
+Обязательно фиксировать:
+
+- продуктовый контекст  
+- архитектуру  
+- модели  
+- решения  
+
+---
+
+## 7. Technical direction
 
 ### Backend
 
-- keep services simple and explicit
-- avoid unnecessary abstractions
-- improve data models step by step
-- maintain clear API contracts
+- простые сервисы  
+- явные зависимости  
+- минимальная магия  
 
 ### Data
 
-- ensure clean ingestion pipelines
-- store raw events reliably
-- build toward reproducibility
+- надежный ingestion  
+- хранение raw данных  
+- движение к воспроизводимости  
 
 ---
 
-## 7. What to avoid
+## 8. Decision rules
 
-- over-engineering infrastructure
-- premature microservices
-- embedding AI into every feature
-- replacing logic with prompts
-- building autonomous agents with write access too early
+Если возникает выбор:
 
----
+Предпочитать:
 
-## 8. Next milestone
+1. простое решение вместо сложного  
+2. явную логику вместо скрытой  
+3. детерминированность вместо вероятности  
+4. локальные изменения вместо глобальных  
 
-A stable system where:
+Избегать:
 
-- backend runs without AI dependencies
-- core logic is deterministic and testable
-- RAG exists as a separate working tool on Mac
-- Codex is used for controlled code changes
-- repository contains structured product knowledge
+- overengineering  
+- premature abstraction  
+- внедрения AI "потому что можно"  
 
 ---
 
-## 9. Longer-term direction (not now)
+## 9. Definition of progress
 
-Later, reconsider:
+Прогресс — это не количество фич.
 
-- integrating RAG as a service
-- controlled AI endpoints
-- agent actions (issue creation, PR automation)
-- hybrid model (local + external AI)
+Прогресс — это:
 
-Only after core system is stable.
+- система стала понятнее  
+- логика стала прозрачнее  
+- поведение стало стабильнее  
+
+---
+
+## 10. Next milestone
+
+Система считается готовой к следующему этапу, когда:
+
+- backend работает без AI зависимостей  
+- все ключевые расчеты детерминированы  
+- архитектура проста и объяснима  
+- документация отражает реальное состояние системы  
+
+После этого можно:
+
+- аккуратно возвращать AI  
+- рассматривать RAG как сервис  

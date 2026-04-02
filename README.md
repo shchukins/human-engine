@@ -1,116 +1,160 @@
+```text
++--------------------------------------------------------------+
+|                      HUMAN ENGINE                            |
+|--------------------------------------------------------------|
+|  ingest  ->  model  ->  assess  ->  decide                  |
+|--------------------------------------------------------------|
+|  deterministic training intelligence system                  |
++--------------------------------------------------------------+
+```
+
 # Human Engine
 
-Human Engine — экспериментальная платформа для загрузки, хранения и анализа тренировочных данных.
+> A system for analyzing training load, estimating athlete state, and supporting training decisions.
+>
+> `signal -> state -> readiness -> decision`
 
-Проект исследует возможность построения собственной системы анализа тренировочной нагрузки и адаптации человека на основе данных из Strava.
+## Core Idea
 
-Основная идея проекта — создать прозрачный и воспроизводимый pipeline обработки тренировочных данных, начиная от получения событий Strava и заканчивая расчетом тренировочных метрик и моделей адаптации.
+**The right training on the right day.**
 
----
+Human Engine is not just a training log and not an AI coach.  
+It is an engineering system designed to support decisions through explicit, reproducible, and deterministic logic.
 
-## Текущее состояние проекта
+## What Human Engine Does
 
-На данный момент реализованы:
+- Collects training data
+- Estimates physiological state
+- Calculates readiness
+- Supports training load decisions
 
-- backend сервис на FastAPI
-- PostgreSQL база данных
-- webhook интеграция со Strava
-- ingestion pipeline для загрузки активностей
-- хранение сырых данных активностей
-- деплой через Docker
-- публичный API через VPS reverse proxy
+## What the System Is
 
----
+- A training data processing system
+- A load adaptation model
+- A readiness evaluation engine
+- A foundation for training decisions
 
-## Архитектура
+## What the System Is Not
 
-Поток данных:
+- Not just a dashboard
+- Not black-box AI
+- Not a generative coach
+- Not a system where an LLM makes product decisions
 
-Strava  
-↓  
-Webhook event  
-↓  
-FastAPI backend  
-↓  
-PostgreSQL  
+See: [docs/ai/PRODUCT_CONTEXT.md](docs/ai/PRODUCT_CONTEXT.md)
 
-Инфраструктура деплоя:
+## Current State
 
-Internet  
-↓  
-VPS (Caddy reverse proxy)  
-↓  
-Tailscale  
-↓  
-Home server  
-↓  
-FastAPI + PostgreSQL  
+The system is currently in a stabilization phase. The current setup includes:
 
----
-
-## Технологический стек
-
-Backend
-
-- Python
-- FastAPI
+- Backend built with FastAPI
 - PostgreSQL
+- Strava ingestion pipeline
+- Raw data storage
+- Docker deployment
+- Public API exposed through a VPS
 
-Infrastructure
+### Current Focus
 
-- Docker
-- Docker Compose
-- Caddy
-- Tailscale
+- Deterministic core
+- Transparent logic
+- Reproducible results
 
-External integrations
+See: [docs/ai/CURRENT_PRIORITIES.md](docs/ai/CURRENT_PRIORITIES.md)
 
-- Strava API
-- Strava Webhooks
+## System Overview
 
----
+### Data Flow
 
-## Структура проекта
+```text
+Strava
+   |
+   v
+Webhook
+   |
+   v
+Backend
+   |
+   v
+PostgreSQL
+   |
+   v
+Metrics / Models (next)
+```
 
-backend/
-основной backend код и документация
+### Infrastructure
 
-backend/infra/
-docker compose и инфраструктура для разработки
+```text
+Internet
+   |
+   v
+VPS (Caddy)
+   |
+   v
+Tailscale
+   |
+   v
+Home server
+   |
+   v
+Backend + DB
+```
 
-db-init/
-инициализация базы данных
+## Architecture Principles
 
-compose.yaml
-docker compose стек для домашнего сервера
+- Simplicity over complexity
+- Deterministic logic over AI
+- Calculations should remain transparent
+- Data and outputs should remain reproducible
+- AI is an auxiliary layer, not the product core
 
-sql_*.sql
-черновые SQL-запросы для ingestion и аналитики
+## Repository Structure
 
----
+```text
+backend/        main service
+backend/infra/  local infrastructure
+db-init/        database initialization
+compose.yaml    deployment
+sql_*.sql       analytics and ingestion scripts
+docs/           system documentation
+```
 
-## Документация
+## Documentation
 
-Подробная документация находится в каталоге backend:
+### Core Docs
 
-- backend/README.md — детали backend сервиса
-- backend/ARCHITECTURE.md — архитектура системы
-- backend/ROADMAP.md — план развития проекта
+- [backend/README.md](backend/README.md)
+- [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md)
+- [backend/ROADMAP.md](backend/ROADMAP.md)
 
----
+### Product and AI Context
 
-## Roadmap
+- [docs/ai/PRODUCT_CONTEXT.md](docs/ai/PRODUCT_CONTEXT.md)
+- [docs/ai/CURRENT_PRIORITIES.md](docs/ai/CURRENT_PRIORITIES.md)
+- [docs/ai/GLOSSARY.md](docs/ai/GLOSSARY.md)
+- [AGENTS.md](AGENTS.md)
 
-Ближайшие направления развития:
+## Short Roadmap
 
-- загрузка streams данных из Strava
-- расчет тренировочных метрик (TSS, CTL, ATL)
-- модель тренировочной адаптации
-- API для аналитики
-- мобильное приложение
+- Streams ingestion
+- Feature extraction
+- Training load metrics: TSS, CTL, ATL
+- Readiness model
+- Prediction engine
+- iOS client
 
----
+## Documentation
 
-## Статус проекта
+Repository knowledge is organized as follows:
 
-Проект находится в стадии активного прототипирования.
+- `docs/ai/` — AI context and system language
+- `docs/architecture/` — architecture and decisions
+- `docs/data/` — data model
+- `docs/models/` — features, metrics, readiness and ride briefing
+- `docs/dev/` — workflow and testing strategy
+- `docs/product/` — user scenarios
+
+## Status
+
+Experimental engineering project with a strong focus on a deterministic product core.

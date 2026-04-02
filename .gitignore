@@ -20,7 +20,7 @@ __pycache__/
 *.log
 
 # Runtime data
-data/
+/data/
 
 # iOS
 DerivedData/
@@ -31,3 +31,5 @@ venv/
 
 # local database backups
 human_engine_before_pgvector.sql
+
+!docs/data/**

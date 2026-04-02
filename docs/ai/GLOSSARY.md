@@ -1,20 +1,182 @@
 # Glossary
 
-## Data Engine
-Collects and normalizes incoming data.
+## 1. Data layer
 
-## Physiology Model
-Estimates internal athlete state from data.
+### Data Engine
+Слой, отвечающий за сбор и нормализацию входных данных.
 
-## Readiness Engine
-Evaluates current readiness.
+Включает:
+- webhook ingestion  
+- загрузку активностей  
+- приведение данных к единому формату  
 
-## Prediction Engine
-Forecasts the response to planned load.
+---
 
-## RAG
+### Raw Data
+Необработанные данные, полученные из внешних источников (например, Strava).
+
+Должны сохраняться без изменений для воспроизводимости.
+
+---
+
+### Feature Extraction
+Процесс преобразования сырых данных в признаки (features), используемые в моделях.
+
+---
+
+## 2. Modeling layer
+
+### Physiology Model
+Модель, оценивающая внутреннее состояние спортсмена на основе данных.
+
+Примеры:
+- накопленная нагрузка  
+- восстановление  
+- адаптация  
+
+---
+
+### Training Load
+Количественная оценка нагрузки тренировки.
+
+Примеры:
+- TSS  
+- IF  
+- объем  
+
+---
+
+### Fitness / Fatigue
+Компоненты состояния:
+
+- Fitness (долгосрочная адаптация)  
+- Fatigue (краткосрочная усталость)  
+
+---
+
+## 3. Decision layer
+
+### Readiness
+Оценка текущей готовности к нагрузке.
+
+Основывается на:
+- fatigue  
+- fitness  
+- недавней активности  
+
+Должна быть:
+- детерминированной  
+- объяснимой  
+- проверяемой  
+
+---
+
+### Recommendation
+Результат работы системы.
+
+Определяет:
+- тип тренировки  
+- допустимую нагрузку  
+
+---
+
+### Ride Briefing
+Конкретная форма рекомендации перед тренировкой.
+
+Должен быть:
+- детерминированным  
+- стабильным  
+
+---
+
+## 4. System architecture
+
+### Deterministic
+Логика, которая:
+
+- дает одинаковый результат при одинаковых входных данных  
+- не зависит от генеративных моделей  
+
+---
+
+### Pipeline
+Последовательность обработки данных:
+
+ingestion → storage → features → models → decision  
+
+---
+
+### Core
+Основная часть системы:
+
+- backend  
+- database  
+- domain logic  
+
+Где выполняются все расчеты.
+
+---
+
+### Worker
+Фоновый процесс, выполняющий:
+
+- загрузку данных  
+- обработку  
+- обновление состояния  
+
+---
+
+## 5. AI layer
+
+### RAG
 Retrieval-Augmented Generation.
-A system that retrieves relevant indexed context and uses it to answer questions more reliably.
 
-## Deterministic
-Explicit logic that produces predictable output from known inputs without generative interpretation.
+Система, которая:
+- ищет релевантные документы  
+- использует их для ответа  
+
+Используется как вспомогательный инструмент.
+
+---
+
+### LLM
+Large Language Model.
+
+Используется только для:
+
+- генерации текста  
+- объяснений  
+- помощи разработчику  
+
+Не используется для:
+
+- расчетов  
+- принятия решений  
+
+---
+
+## 6. Principles
+
+### Reproducibility
+Возможность повторить расчет и получить тот же результат.
+
+Требует:
+- сохранения raw данных  
+- явной логики  
+
+---
+
+### Observability
+Возможность понять:
+
+- как получен результат  
+- какие данные использовались  
+
+---
+
+### Simplicity
+Предпочтение:
+
+- простых моделей  
+- явной логики  
+- минимальной магии  
