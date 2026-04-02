@@ -1,13 +1,3 @@
-```text
-+--------------------------------------------------------------+
-|                      HUMAN ENGINE                            |
-|--------------------------------------------------------------|
-|  ingest  ->  model  ->  assess  ->  decide                  |
-|--------------------------------------------------------------|
-|  deterministic training intelligence system                  |
-+--------------------------------------------------------------+
-```
-
 # Human Engine
 
 > A system for analyzing training load, estimating athlete state, and supporting training decisions.
