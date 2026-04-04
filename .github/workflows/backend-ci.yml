@@ -33,6 +33,11 @@ jobs:
         run: pytest tests -v -k "not integration"
     env:
       PYTHONPATH: ${{ github.workspace }}/backend
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      STRAVA_VERIFY_TOKEN: test_verify_token
+      STRAVA_CLIENT_ID: "12345"
+      STRAVA_CLIENT_SECRET: test_client_secret
+      STRAVA_REDIRECT_URI: https://example.com/strava/callback
 
 
   db-integration-tests:
@@ -57,6 +62,10 @@ jobs:
       DATABASE_URL: postgresql://human_engine:human_engine@127.0.0.1:5432/human_engine
       RUN_DB_TESTS: "1"
       PYTHONPATH: ${{ github.workspace }}/backend
+      STRAVA_VERIFY_TOKEN: test_verify_token
+      STRAVA_CLIENT_ID: "12345"
+      STRAVA_CLIENT_SECRET: test_client_secret
+      STRAVA_REDIRECT_URI: https://example.com/strava/callback
 
     defaults:
       run:
@@ -83,11 +92,21 @@ jobs:
             sleep 2
           done
 
-      - name: Apply DB init scripts
+      - name: Apply DB schema
         run: |
-          for f in ../db-init/*.sql; do
-            psql "$DATABASE_URL" -f "$f"
-          done
+            for f in ../db-init/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            for f in ../sql/ingestion/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            for f in ../sql/analytics/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            psql "$DATABASE_URL" -f ../sql/scratch/sql_user_training_profile.sql
 
       - name: Run DB integration tests
         run: |
