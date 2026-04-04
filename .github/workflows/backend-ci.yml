@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  backend-check:
+  unit-tests:
     runs-on: ubuntu-latest
 
     defaults:
@@ -28,3 +28,64 @@ jobs:
 
       - name: Compile Python files
         run: python -m compileall backend
+
+      - name: Run unit tests
+        run: pytest tests -v -k "not integration"
+
+  db-integration-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16-trixie
+        env:
+          POSTGRES_USER: human_engine
+          POSTGRES_PASSWORD: human_engine
+          POSTGRES_DB: human_engine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U human_engine -d human_engine"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://human_engine:human_engine@127.0.0.1:5432/human_engine
+      RUN_DB_TESTS: "1"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h 127.0.0.1 -p 5432 -U human_engine -d human_engine; do
+            sleep 2
+          done
+
+      - name: Apply DB init scripts
+        run: |
+          for f in ../db-init/*.sql; do
+            psql "$DATABASE_URL" -f "$f"
+          done
+
+      - name: Run DB integration tests
+        run: |
+          pytest tests/test_metrics_smoke_integration.py -v
+          pytest tests/test_pipeline_idempotency_integration.py -v
