@@ -1,10 +1,10 @@
 from backend.services.notification_service import (
+    build_briefing_text,
     compute_readiness_score,
     describe_readiness,
     describe_freshness_trend,
     recommend_training,
 )
-
 
 def test_compute_readiness_score_none():
     assert compute_readiness_score(None) is None
@@ -100,3 +100,59 @@ def test_recommend_training_very_high_score_declining():
 
 def test_recommend_training_very_high_score_default():
     assert recommend_training(95, "stable") == "Подходит день для интенсивной тренировки"
+
+
+def test_build_briefing_text_no_data():
+    assert build_briefing_text(None, "n/a", None, None) == "Недостаточно данных для интерпретации состояния."
+
+
+def test_build_briefing_text_low_score_declining():
+    assert build_briefing_text(20, "declining", 10.0, 20.0) == "Сегодня лучше восстановиться. Свежесть низкая, тренд ухудшается."
+
+
+def test_build_briefing_text_low_score_heavy_recent_load():
+    assert build_briefing_text(20, "stable", 65.0, 40.0) == "Сегодня лучше восстановиться. Недавняя нагрузка была высокой."
+
+
+def test_build_briefing_text_low_score_default():
+    assert build_briefing_text(20, "stable", 10.0, 20.0) == "Сегодня лучше восстановиться. Организм выглядит утомленным."
+
+
+def test_build_briefing_text_mid_low_improving():
+    assert build_briefing_text(40, "improving", 10.0, 20.0) == "Состояние еще ограничено, но есть признаки восстановления."
+
+
+def test_build_briefing_text_mid_low_default():
+    assert build_briefing_text(40, "stable", 10.0, 20.0) == "Состояние умеренно утомленное. Лучше держать нагрузку легкой."
+
+
+def test_build_briefing_text_mid_declining():
+    assert build_briefing_text(55, "declining", 10.0, 20.0) == "Состояние нормальное, но тренд ухудшается. Лучше не форсировать нагрузку."
+
+
+def test_build_briefing_text_mid_improving():
+    assert build_briefing_text(55, "improving", 10.0, 20.0) == "Состояние нормальное и улучшается. Подходит день для умеренной тренировки."
+
+
+def test_build_briefing_text_mid_default():
+    assert build_briefing_text(55, "stable", 10.0, 20.0) == "Состояние нормальное. Подходит день для спокойной endurance тренировки."
+
+
+def test_build_briefing_text_good_declining():
+    assert build_briefing_text(75, "declining", 10.0, 20.0) == "Состояние хорошее, но тренд не улучшается. Лучше избегать максимальной интенсивности."
+
+
+def test_build_briefing_text_good_heavy_recent_load():
+    assert build_briefing_text(75, "stable", 65.0, 40.0) == "Состояние хорошее, но недавняя нагрузка была заметной. Контролируй самочувствие."
+
+
+def test_build_briefing_text_good_default():
+    assert build_briefing_text(75, "stable", 10.0, 20.0) == "Хороший день для качественной работы."
+
+
+def test_build_briefing_text_very_good_declining():
+    assert build_briefing_text(95, "declining", 10.0, 20.0) == "Состояние очень хорошее, но тренд снижается. Интенсивность допустима, но без лишнего риска."
+
+
+def test_build_briefing_text_very_good_default():
+    assert build_briefing_text(95, "stable", 10.0, 20.0) == "Очень хороший день для интенсивной тренировки."
