@@ -22,6 +22,7 @@ from backend.services.metrics_service import (
     compute_power_zones,
     rolling_mean,
 )
+from backend.services.notification_service import send_daily_readiness
 from backend.services.pipeline_service import process_activity_pipeline
 from backend.services.strava_auth import refresh_strava_token_if_needed
 from backend.services.strava_client import (
@@ -1138,3 +1139,14 @@ def strava_callback(
         "strava_athlete_id": strava_athlete_id,
         "scope": sorted(list(accepted_scopes)),
     }
+
+@app.post("/debug/daily-readiness/{user_id}")
+def debug_daily_readiness(user_id: str):
+    try:
+        sent = send_daily_readiness(user_id)
+        return {"ok": True, "user_id": user_id, "sent": sent}
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"telegram error: {e}")
+    except psycopg.Error as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
