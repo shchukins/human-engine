@@ -92,11 +92,21 @@ jobs:
             sleep 2
           done
 
-      - name: Apply DB init scripts
+      - name: Apply DB schema
         run: |
-          for f in ../db-init/*.sql; do
-            psql "$DATABASE_URL" -f "$f"
-          done
+            for f in ../db-init/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            for f in ../sql/ingestion/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            for f in ../sql/analytics/*.sql; do
+              psql "$DATABASE_URL" -f "$f"
+            done
+
+            psql "$DATABASE_URL" -f ../sql/scratch/sql_user_training_profile.sql
 
       - name: Run DB integration tests
         run: |

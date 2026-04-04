@@ -4,16 +4,10 @@ from backend.services.ingest_service import process_one_strava_ingest_job
 
 
 def _mock_conn(job_row):
-    """
-    Возвращает mock connection, который:
-    - на первом SELECT отдает job_row
-    - все остальные SQL просто "пропускает"
-    """
     conn = MagicMock()
     cur = MagicMock()
 
-    # Первая fetchone() -> pending job
-    # Остальные fetchone() в этом тесте не нужны
+    # Первый fetchone() возвращает pending job.
     cur.fetchone.side_effect = [job_row]
 
     conn.cursor.return_value.__enter__.return_value = cur
@@ -24,7 +18,15 @@ def _mock_conn(job_row):
 @patch("backend.services.ingest_service.notify_training_processed")
 @patch("backend.services.ingest_service.process_activity_pipeline")
 @patch("backend.services.ingest_service.get_conn")
-def test_notify_sent_for_webhook_create(mock_get_conn, mock_pipeline, mock_notify):
+@patch("backend.services.ingest_service.settings")
+def test_notify_sent_for_webhook_create(
+    mock_settings,
+    mock_get_conn,
+    mock_pipeline,
+    mock_notify,
+):
+    mock_settings.telegram_notify_on_webhook_success = True
+
     job_row = (
         100,                # job_id
         "sergey",           # user_id
@@ -62,7 +64,15 @@ def test_notify_sent_for_webhook_create(mock_get_conn, mock_pipeline, mock_notif
 @patch("backend.services.ingest_service.notify_training_processed")
 @patch("backend.services.ingest_service.process_activity_pipeline")
 @patch("backend.services.ingest_service.get_conn")
-def test_notify_not_sent_for_non_webhook_reason(mock_get_conn, mock_pipeline, mock_notify):
+@patch("backend.services.ingest_service.settings")
+def test_notify_not_sent_for_non_webhook_reason(
+    mock_settings,
+    mock_get_conn,
+    mock_pipeline,
+    mock_notify,
+):
+    mock_settings.telegram_notify_on_webhook_success = True
+
     job_row = (
         101,                  # job_id
         "sergey",             # user_id
