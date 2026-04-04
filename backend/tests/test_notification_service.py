@@ -1,8 +1,12 @@
 from backend.services.notification_service import (
     build_briefing_text,
+    build_workout_comment,
+    classify_workout_type,
     compute_readiness_score,
+    compute_training_impact,
     describe_readiness,
     describe_freshness_trend,
+    describe_training_impact,
     recommend_training,
 )
 
@@ -156,3 +160,102 @@ def test_build_briefing_text_very_good_declining():
 
 def test_build_briefing_text_very_good_default():
     assert build_briefing_text(95, "stable", 10.0, 20.0) == "Очень хороший день для интенсивной тренировки."
+
+
+def test_classify_workout_type_unknown():
+    assert classify_workout_type(None, 50.0, 3600) == "unknown"
+
+
+def test_classify_workout_type_recovery():
+    assert classify_workout_type(0.50, 20.0, 3600) == "recovery"
+
+
+def test_classify_workout_type_endurance():
+    assert classify_workout_type(0.73, 60.0, 4200) == "endurance"
+
+
+def test_classify_workout_type_long_endurance():
+    assert classify_workout_type(0.70, 90.0, 8000) == "long_endurance"
+
+
+def test_classify_workout_type_tempo():
+    assert classify_workout_type(0.80, 70.0, 3600) == "tempo"
+
+
+def test_classify_workout_type_threshold():
+    assert classify_workout_type(0.90, 85.0, 3600) == "threshold"
+
+
+def test_classify_workout_type_vo2():
+    assert classify_workout_type(0.98, 95.0, 3600) == "vo2"
+
+
+def test_build_workout_comment_recovery():
+    assert build_workout_comment("recovery", 20.0) == "Легкая восстановительная сессия"
+
+
+def test_build_workout_comment_endurance_default():
+    assert build_workout_comment("endurance", 60.0) == "Хорошая аэробная работа"
+
+
+def test_build_workout_comment_endurance_high_tss():
+    assert build_workout_comment("endurance", 85.0) == "Хорошая аэробная работа с заметной нагрузкой"
+
+
+def test_build_workout_comment_long_endurance():
+    assert build_workout_comment("long_endurance", 90.0) == "Длинная аэробная сессия"
+
+
+def test_build_workout_comment_tempo():
+    assert build_workout_comment("tempo", 70.0) == "Умеренно интенсивная работа"
+
+
+def test_build_workout_comment_threshold():
+    assert build_workout_comment("threshold", 85.0) == "Пороговая нагрузка"
+
+
+def test_build_workout_comment_vo2():
+    assert build_workout_comment("vo2", 100.0) == "Высокоинтенсивная тренировка"
+
+
+def test_build_workout_comment_unknown():
+    assert build_workout_comment("unknown", 50.0) == "Тип нагрузки пока не определен"
+
+
+def test_compute_training_impact_no_data():
+    result = compute_training_impact(None, None, 10.0, -5.0)
+
+    assert result["delta_fatigue"] is None
+    assert result["delta_freshness"] is None
+
+
+def test_compute_training_impact_with_values():
+    result = compute_training_impact(
+        prev_fatigue=20.0,
+        prev_freshness=-4.0,
+        new_fatigue=27.5,
+        new_freshness=-10.5,
+    )
+
+    assert result["delta_fatigue"] == 7.5
+    assert result["delta_freshness"] == -6.5
+
+
+def test_describe_training_impact_no_data():
+    assert describe_training_impact(None, None) == "Недостаточно данных для оценки влияния"
+
+
+def test_describe_training_impact_strong_load():
+    assert describe_training_impact(9.0, -7.0) == "Сильная нагрузка, значительный рост усталости"
+
+
+def test_describe_training_impact_noticeable_load():
+    assert describe_training_impact(5.0, -4.0) == "Заметная тренировочная нагрузка"
+
+
+def test_describe_training_impact_moderate_load():
+    assert describe_training_impact(2.0, -2.0) == "Умеренная нагрузка"
+
+
+def test_describe_training_impact_light_load():
+    assert describe_training_impact(0.5, -0.5) == "Легкая нагрузка"
