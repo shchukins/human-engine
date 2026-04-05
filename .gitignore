@@ -1,3 +1,6 @@
+# macOS
+.DS_Store
+
 # Xcode
 DerivedData/
 build/
@@ -5,5 +8,38 @@ build/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 
-# macOS
-.DS_Store
+# Swift Package Manager
+.build/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Runtime data
+/data/
+
+# iOS
+DerivedData/
+*.xcuserstate
+
+venv/
+*.png
+
+# local database backups
+human_engine_before_pgvector.sql
+
+!docs/data/**
