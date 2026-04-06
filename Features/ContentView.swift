@@ -12,32 +12,10 @@ struct ContentView: View {
 
     // MARK: - UI state
 
-    @State private var statusMessage = "Not requested"
-    @State private var authorizationItems: [(name: String, status: String)] = []
-
-    // MARK: - Loaded HealthKit data
-
-    @State private var weightSamples: [WeightSample] = []
-    @State private var restingHRSamples: [RestingHRSample] = []
-    @State private var hrvSamples: [HRVSample] = []
-    @State private var sleepSamples: [SleepSample] = []
-    @State private var sleepNightAggregates: [SleepNightAggregate] = []
-
-    // MARK: - Incremental / delta data
-
-    @State private var newHRVSamples: [HRVSample] = []
-    @State private var newRestingHRSamples: [RestingHRSample] = []
-    @State private var newSleepNightAggregates: [SleepNightAggregate] = []
-
-    // MARK: - Payload / sync state
-
-    @State private var payloadPreview: String = ""
-    @State private var payloadSummary: String = ""
-    @State private var syncState = SyncStateStore.shared.load()
+    @State private var viewModel = ContentViewModel()
 
     // MARK: - Runtime control state
 
-    @State private var isSyncInProgress = false
     @State private var observersConfigured = false
     @State private var pendingAutoSyncWorkItem: DispatchWorkItem?
 
@@ -63,15 +41,16 @@ struct ContentView: View {
             }
             .navigationTitle("HealthKit")
             .onAppear {
-                syncState = SyncStateStore.shared.load()
-                refreshStatuses()
+                viewModel.reloadSyncState()
+                viewModel.refreshStatuses()
 
-                // Подключаем observers только один раз за жизненный цикл view.
                 if !observersConfigured {
                     HealthKitService.shared.enableObservers()
                     setupObservers()
                     observersConfigured = true
                 }
+
+                performInitialSync()
             }
         }
     }
@@ -93,85 +72,71 @@ struct ContentView: View {
     private var actionsSection: some View {
         GroupBox("Authorization & Sync") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Status: \(statusMessage)")
+                Text("Status: \(viewModel.statusMessage)")
 
-                if isSyncInProgress {
+                if viewModel.isSyncInProgress {
                     ProgressView("Sync in progress...")
                 }
 
                 Button("Request permissions") {
-                    requestPermissions()
+                    viewModel.requestPermissions()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Refresh statuses") {
-                    refreshStatuses()
+                    viewModel.refreshStatuses()
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Read sample data") {
                     readSampleData()
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Build JSON payload") {
                     buildPayloadPreview()
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Reset sync state") {
                     resetSyncState()
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Full sync") {
                     performFullSync()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
 
                 Button("Incremental sync") {
                     performIncrementalSync()
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncInProgress)
+                .disabled(viewModel.isSyncInProgress)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var permissionsSection: some View {
-        GroupBox("Permissions") {
-            if authorizationItems.isEmpty {
-                Text("No data yet")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(authorizationItems, id: \.name) { item in
-                        HStack {
-                            Text(item.name)
-                            Spacer()
-                            Text(item.status)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
+        PermissionsSectionView(
+            authorizationItems: viewModel.authorizationItems
+        )
     }
 
     private var payloadSummarySection: some View {
         GroupBox("Payload summary") {
-            if payloadSummary.isEmpty {
+            if viewModel.payloadSummary.isEmpty {
                 Text("No summary yet")
                     .foregroundStyle(.secondary)
             } else {
-                Text(payloadSummary)
+                Text(viewModel.payloadSummary)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -180,155 +145,58 @@ struct ContentView: View {
     }
 
     private var payloadPreviewSection: some View {
-        GroupBox("Payload preview") {
-            if payloadPreview.isEmpty {
-                Text("No payload yet")
-                    .foregroundStyle(.secondary)
-            } else {
-                ScrollView(.horizontal) {
-                    Text(payloadPreview)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
+        PayloadPreviewSectionView(
+            payloadPreview: viewModel.payloadPreview
+        )
     }
 
     private var syncStateSection: some View {
         GroupBox("Sync state") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Last successful sync: \(syncState.lastSuccessfulSyncAt.map(formatDate) ?? "None")")
-                Text("Last payload generated: \(syncState.lastPayloadGeneratedAt.map(formatDate) ?? "None")")
-                Text("Last sent item count: \(syncState.lastSentItemCount)")
-                Text("Last sync mode: \(syncState.lastSyncMode?.rawValue ?? "None")")
-                Text("Last error: \(syncState.lastErrorMessage ?? "None")")
+                Text("Last successful sync: \(viewModel.syncState.lastSuccessfulSyncAt.map(DateFormatters.shortDateTime) ?? "None")")
+                Text("Last payload generated: \(viewModel.syncState.lastPayloadGeneratedAt.map(DateFormatters.shortDateTime) ?? "None")")
+                Text("Last sent item count: \(viewModel.syncState.lastSentItemCount)")
+                Text("Last sync mode: \(viewModel.syncState.lastSyncMode?.rawValue ?? "None")")
+                Text("Last error: \(viewModel.syncState.lastErrorMessage ?? "None")")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var weightSection: some View {
-        GroupBox("Weight samples") {
-            if weightSamples.isEmpty {
-                Text("No weight samples")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(weightSamples.prefix(5)) { sample in
-                        Text("\(formatDate(sample.date))  •  \(sample.kilograms, specifier: "%.1f") kg")
-                    }
-                }
-            }
-        }
+        WeightSectionView(
+            samples: viewModel.weightSamples,
+            formatDate: DateFormatters.shortDateTime
+        )
     }
 
     private var restingHRSection: some View {
-        GroupBox("Resting HR samples") {
-            if restingHRSamples.isEmpty {
-                Text("No resting HR samples")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(restingHRSamples.prefix(5)) { sample in
-                        Text("\(formatDate(sample.date))  •  \(sample.bpm, specifier: "%.0f") bpm")
-                    }
-                }
-            }
-        }
+        RestingHRSectionView(
+            samples: viewModel.restingHRSamples,
+            formatDate: { DateFormatters.shortDateTime($0) }
+        )
     }
 
     private var hrvSection: some View {
-        GroupBox("HRV samples") {
-            if hrvSamples.isEmpty {
-                Text("No HRV samples")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(hrvSamples.prefix(5)) { sample in
-                        Text("\(formatDate(sample.date))  •  \(sample.milliseconds, specifier: "%.1f") ms")
-                    }
-                }
-            }
-        }
+        HRVSectionView(
+            samples: viewModel.hrvSamples,
+            formatDate: { DateFormatters.shortDateTime($0) }
+        )
     }
 
     private var sleepNightAggregatesSection: some View {
-        GroupBox("Sleep night aggregates") {
-            if sleepNightAggregates.isEmpty {
-                Text("No sleep aggregates")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(sleepNightAggregates.prefix(5)) { night in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Wake date: \(formatDateOnly(night.wakeDate))")
-                                .font(.headline)
-
-                            Text("Sleep: \(night.totalSleepMinutes, specifier: "%.0f") min")
-                            Text("Awake: \(night.awakeMinutes, specifier: "%.0f") min")
-                            Text("Core: \(night.coreMinutes, specifier: "%.0f") min")
-                            Text("REM: \(night.remMinutes, specifier: "%.0f") min")
-                            Text("Deep: \(night.deepMinutes, specifier: "%.0f") min")
-                            Text("In Bed: \(night.inBedMinutes, specifier: "%.0f") min")
-
-                            Text("\(formatDate(night.sleepStart)) → \(formatDate(night.sleepEnd))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
+        SleepNightAggregatesSectionView(
+            nights: viewModel.sleepNightAggregates,
+            formatDate: { DateFormatters.shortDateTime($0) },
+            formatDateOnly: { DateFormatters.mediumDate($0) }
+        )
     }
 
     private var sleepSamplesSection: some View {
-        GroupBox("Sleep samples") {
-            if sleepSamples.isEmpty {
-                Text("No sleep samples")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(sleepSamples.prefix(10)) { sample in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(sample.stage)  •  \(sample.durationMinutes, specifier: "%.0f") min")
-                            Text("\(formatDate(sample.startDate)) → \(formatDate(sample.endDate))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Permissions
-
-    /// Запрашивает доступ к нужным типам HealthKit.
-    private func requestPermissions() {
-        HealthKitService.shared.requestAuthorization { result in
-            switch result {
-            case .success:
-                statusMessage = "Authorization successful"
-                refreshStatuses()
-
-            case .failure(let error):
-                statusMessage = error.localizedDescription
-                refreshStatuses()
-            }
-        }
-    }
-
-    /// Обновляет статусы разрешений по HealthKit типам.
-    private func refreshStatuses() {
-        let statuses = HealthKitService.shared.authorizationStatuses()
-
-        authorizationItems = statuses
-            .map { key, value in
-                (name: key, status: mapAuthorizationStatus(value))
-            }
-            .sorted { $0.name < $1.name }
+        SleepSamplesSectionView(
+            samples: viewModel.sleepSamples,
+            formatDate: { DateFormatters.shortDateTime($0) }
+        )
     }
 
     // MARK: - Manual sample reading
@@ -336,128 +204,19 @@ struct ContentView: View {
     /// Ручное чтение примеров данных из HealthKit.
     /// Используется для быстрой визуальной проверки интеграции.
     private func readSampleData() {
-        statusMessage = "Reading sample data..."
-
-        HealthKitService.shared.fetchLatestWeightSample { result in
+        viewModel.readSampleData { result in
             switch result {
-            case .success(let weights):
-                weightSamples = weights
-            case .failure(let error):
-                statusMessage = "Weight read error: \(error.localizedDescription)"
+            case .success(let data):
+                viewModel.weightSamples = data.weightSamples
+                viewModel.restingHRSamples = data.restingHRSamples
+                viewModel.hrvSamples = data.hrvSamples
+                viewModel.sleepSamples = data.sleepSamples
+                viewModel.sleepNightAggregates = data.sleepNightAggregates
+
+            case .failure:
+                // Ошибка уже обработана внутри viewModel.
+                break
             }
-        }
-
-        HealthKitService.shared.fetchRestingHRSamplesForLast7Days { result in
-            switch result {
-            case .success(let restingHR):
-                restingHRSamples = restingHR
-            case .failure(let error):
-                statusMessage = "Resting HR read error: \(error.localizedDescription)"
-            }
-        }
-
-        HealthKitService.shared.fetchHRVSamplesForLast7Days { result in
-            switch result {
-            case .success(let hrv):
-                hrvSamples = hrv
-            case .failure(let error):
-                statusMessage = "HRV read error: \(error.localizedDescription)"
-            }
-        }
-
-        HealthKitService.shared.fetchSleepSamplesForLast7Days { result in
-            switch result {
-            case .success(let sleep):
-                sleepSamples = sleep
-                sleepNightAggregates = HealthKitService.shared.buildSleepNightAggregates(from: sleep)
-                statusMessage = "Sample data loaded"
-            case .failure(let error):
-                statusMessage = "Sleep read error: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    // MARK: - Payload building
-
-    /// Строит полный payload и показывает:
-    /// 1. краткую сводку
-    /// 2. обрезанный JSON preview
-    private func buildPayloadPreview() {
-        let payload = HealthKitService.shared.buildHealthSyncPayload(
-            sleepAggregates: sleepNightAggregates,
-            restingHRSamples: restingHRSamples,
-            hrvSamples: hrvSamples,
-            weightSamples: weightSamples
-        )
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        do {
-            let data = try encoder.encode(payload)
-            let fullText = String(data: data, encoding: .utf8) ?? "Failed to render payload"
-
-            // Ограничиваем размер preview, чтобы UI не зависал на больших payload.
-            let previewLimit = 4000
-            if fullText.count > previewLimit {
-                payloadPreview = String(fullText.prefix(previewLimit)) + "\n\n... truncated ..."
-            } else {
-                payloadPreview = fullText
-            }
-
-            updatePayloadSummary(from: payload)
-            statusMessage = "Payload preview built"
-
-            syncState.lastPayloadGeneratedAt = Date()
-            syncState.lastErrorMessage = nil
-            syncState.lastSentItemCount = payloadItemCount(payload)
-            SyncStateStore.shared.save(syncState)
-
-        } catch {
-            payloadPreview = ""
-            statusMessage = "Payload build error: \(error.localizedDescription)"
-            syncState.lastErrorMessage = error.localizedDescription
-            SyncStateStore.shared.save(syncState)
-        }
-    }
-
-    /// Обновляет только краткую сводку payload из текущего полного состояния.
-    private func updatePayloadSummaryOnly() {
-        let payload = HealthKitService.shared.buildHealthSyncPayload(
-            sleepAggregates: sleepNightAggregates,
-            restingHRSamples: restingHRSamples,
-            hrvSamples: hrvSamples,
-            weightSamples: weightSamples
-        )
-
-        updatePayloadSummary(from: payload)
-    }
-
-    /// Формирует краткую summary по уже готовому payload.
-    private func updatePayloadSummary(from payload: HealthSyncPayload) {
-        let encoder = JSONEncoder()
-
-        do {
-            let data = try encoder.encode(payload)
-            let itemCount = payloadItemCount(payload)
-
-            if itemCount == 0 {
-                payloadSummary = """
-No incremental payload data
-payloadSizeBytes: \(data.count)
-"""
-                return
-            }
-
-            payloadSummary = """
-sleepNights: \(payload.sleepNights.count)
-restingHeartRateDaily: \(payload.restingHeartRateDaily.count)
-hrvSamples: \(payload.hrvSamples.count)
-latestWeight: \(payload.latestWeight == nil ? 0 : 1)
-payloadSizeBytes: \(data.count)
-"""
-        } catch {
-            payloadSummary = "Failed to build payload summary"
         }
     }
 
@@ -466,28 +225,22 @@ payloadSizeBytes: \(data.count)
     /// Полный sync:
     /// перечитывает данные, строит полный payload и отправляет его на backend.
     private func performFullSync() {
-        guard !isSyncInProgress else { return }
-
-        isSyncInProgress = true
-        statusMessage = "Running full sync..."
-
-        SyncService.shared.performFullSync { result in
+        viewModel.performFullSync { result in
             switch result {
             case .success(let data):
-                weightSamples = data.weightSamples
-                restingHRSamples = data.restingHRSamples
-                hrvSamples = data.hrvSamples
-                sleepSamples = data.sleepSamples
-                sleepNightAggregates = data.sleepNightAggregates
+                viewModel.weightSamples = data.weightSamples
+                viewModel.restingHRSamples = data.restingHRSamples
+                viewModel.hrvSamples = data.hrvSamples
+                viewModel.sleepSamples = data.sleepSamples
+                viewModel.sleepNightAggregates = data.sleepNightAggregates
 
-                updatePayloadSummary(from: data.payload)
-                sendPayload(data.payload, mode: .full)
+                viewModel.sendPayload(data.payload, mode: .full) {
+                    viewModel.isSyncInProgress = false
+                }
 
-            case .failure(let error):
-                statusMessage = "Full sync error: \(error.localizedDescription)"
-                syncState.lastErrorMessage = error.localizedDescription
-                SyncStateStore.shared.save(syncState)
-                isSyncInProgress = false
+            case .failure:
+                // Ошибка уже обработана внутри viewModel.
+                break
             }
         }
     }
@@ -495,93 +248,43 @@ payloadSizeBytes: \(data.count)
     /// Incremental sync:
     /// использует anchors и отправляет только delta payload.
     private func performIncrementalSync() {
-        guard !isSyncInProgress else { return }
-
-        isSyncInProgress = true
-        statusMessage = "Running incremental sync..."
-
-        SyncService.shared.performIncrementalSync { result in
+        viewModel.performIncrementalSync { result in
             switch result {
             case .success(let data):
                 guard let payload = data.payload else {
-                    updatePayloadSummary(from: HealthSyncPayload(
-                        generatedAt: ISO8601DateFormatter().string(from: Date()),
-                        timezone: TimeZone.current.identifier,
-                        sleepNights: [],
-                        restingHeartRateDaily: [],
-                        hrvSamples: [],
-                        latestWeight: nil
-                    ))
-
-                    statusMessage = "Incremental sync: no new data"
-                    syncState.lastErrorMessage = nil
-                    syncState.lastSyncMode = .incremental
-                    SyncStateStore.shared.save(syncState)
-                    isSyncInProgress = false
                     return
                 }
 
-                newHRVSamples = data.newHRVSamples
-                newRestingHRSamples = data.newRestingHRSamples
-                newSleepNightAggregates = data.newSleepNightAggregates
+                viewModel.newHRVSamples = data.newHRVSamples
+                viewModel.newRestingHRSamples = data.newRestingHRSamples
+                viewModel.newSleepNightAggregates = data.newSleepNightAggregates
 
                 if !data.newHRVSamples.isEmpty {
-                    hrvSamples = data.newHRVSamples
+                    viewModel.hrvSamples = data.newHRVSamples
                 }
 
                 if !data.newRestingHRSamples.isEmpty {
-                    restingHRSamples = data.newRestingHRSamples
+                    viewModel.restingHRSamples = data.newRestingHRSamples
                 }
 
                 if !data.newSleepNightAggregates.isEmpty {
-                    sleepNightAggregates = data.newSleepNightAggregates
+                    viewModel.sleepNightAggregates = data.newSleepNightAggregates
                 }
 
-                updatePayloadSummary(from: payload)
-                sendPayload(payload, mode: .incremental)
+                viewModel.sendPayload(payload, mode: .incremental) {
+                    viewModel.isSyncInProgress = false
+                }
 
-            case .failure(let error):
-                statusMessage = "Incremental sync error: \(error.localizedDescription)"
-                syncState.lastErrorMessage = error.localizedDescription
-                SyncStateStore.shared.save(syncState)
-                isSyncInProgress = false
+            case .failure:
+                // Ошибка уже обработана внутри viewModel.
+                break
             }
-        }
-    }
-
-    /// Общая отправка уже готового payload на backend.
-    private func sendPayload(_ payload: HealthSyncPayload, mode: SyncMode) {
-        statusMessage = "Sending..."
-
-        let itemCount = payloadItemCount(payload)
-
-        SyncService.shared.sendPayload(payload) { result in
-            switch result {
-            case .success:
-                statusMessage = mode == .full ? "Full sync sent" : "Incremental sent"
-                syncState.lastSuccessfulSyncAt = Date()
-                syncState.lastPayloadGeneratedAt = Date()
-                syncState.lastErrorMessage = nil
-                syncState.lastSentItemCount = itemCount
-                syncState.lastSyncMode = mode
-                SyncStateStore.shared.save(syncState)
-
-            case .failure(let error):
-                statusMessage = "Send error: \(error.localizedDescription)"
-                syncState.lastPayloadGeneratedAt = Date()
-                syncState.lastErrorMessage = error.localizedDescription
-                SyncStateStore.shared.save(syncState)
-            }
-
-            isSyncInProgress = false
         }
     }
 
     /// Сбрасывает локальное sync state.
     private func resetSyncState() {
-        syncState = .empty
-        SyncStateStore.shared.clear()
-        statusMessage = "Sync state reset"
+        viewModel.resetSyncState()
     }
 
     // MARK: - Auto sync / observers
@@ -620,52 +323,57 @@ payloadSizeBytes: \(data.count)
         pendingAutoSyncWorkItem?.cancel()
 
         let workItem = DispatchWorkItem {
-            guard !isSyncInProgress else { return }
+            guard !viewModel.isSyncInProgress else { return }
 
-            statusMessage = "Auto sync triggered: \(reason)"
+            viewModel.statusMessage = "Auto sync triggered: \(reason)"
             performIncrementalSync()
         }
 
         pendingAutoSyncWorkItem = workItem
-        statusMessage = "Auto sync scheduled: \(reason)"
+        viewModel.statusMessage = "Auto sync scheduled: \(reason)"
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
     }
 
     // MARK: - Helpers
 
-    private func payloadItemCount(_ payload: HealthSyncPayload) -> Int {
-        payload.sleepNights.count +
-        payload.restingHeartRateDaily.count +
-        payload.hrvSamples.count +
-        (payload.latestWeight == nil ? 0 : 1)
-    }
+    private func buildPayloadPreview() {
+        let payload = HealthKitService.shared.buildHealthSyncPayload(
+            sleepAggregates: viewModel.sleepNightAggregates,
+            restingHRSamples: viewModel.restingHRSamples,
+            hrvSamples: viewModel.hrvSamples,
+            weightSamples: viewModel.weightSamples
+        )
 
-    private func mapAuthorizationStatus(_ status: HKAuthorizationStatus) -> String {
-        switch status {
-        case .notDetermined:
-            return "Not determined"
-        case .sharingDenied:
-            return "Denied"
-        case .sharingAuthorized:
-            return "Authorized"
-        @unknown default:
-            return "Unknown"
+        viewModel.buildPayloadPreview(from: payload)
+    }
+    
+    private func performInitialSync() {
+        viewModel.performInitialSyncIfNeeded { result in
+            switch result {
+            case .success(let data):
+                guard let payload = data.payload else { return }
+
+                if !data.newHRVSamples.isEmpty {
+                    viewModel.hrvSamples = data.newHRVSamples
+                }
+
+                if !data.newRestingHRSamples.isEmpty {
+                    viewModel.restingHRSamples = data.newRestingHRSamples
+                }
+
+                if !data.newSleepNightAggregates.isEmpty {
+                    viewModel.sleepNightAggregates = data.newSleepNightAggregates
+                }
+
+                viewModel.sendPayload(payload, mode: .incremental) {
+                    viewModel.isSyncInProgress = false
+                }
+
+            case .failure:
+                break
+            }
         }
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func formatDateOnly(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
     }
 }
 

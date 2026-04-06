@@ -10,7 +10,7 @@
 		54E7D5682F842FCB002DD9D3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 54E7D5582F842FCB002DD9D3 /* Assets.xcassets */; };
 		54E7D5692F842FCB002DD9D3 /* SyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D55D2F842FCB002DD9D3 /* SyncState.swift */; };
 		54E7D56A2F842FCB002DD9D3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5562F842FCB002DD9D3 /* ContentView.swift */; };
-		54E7D56B2F842FCB002DD9D3 /*  HealthKitAnchorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5632F842FCB002DD9D3 /*  HealthKitAnchorStore.swift */; };
+		54E7D56B2F842FCB002DD9D3 /* HealthKitAnchorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5632F842FCB002DD9D3 /* HealthKitAnchorStore.swift */; };
 		54E7D56C2F842FCB002DD9D3 /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5662F842FCB002DD9D3 /* Notifications.swift */; };
 		54E7D56D2F842FCB002DD9D3 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5642F842FCB002DD9D3 /* SyncStateStore.swift */; };
 		54E7D56E2F842FCB002DD9D3 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5612F842FCB002DD9D3 /* SyncService.swift */; };
@@ -19,6 +19,15 @@
 		54E7D5712F842FCB002DD9D3 /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5602F842FCB002DD9D3 /* HealthKitService.swift */; };
 		54E7D5722F842FCB002DD9D3 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D55F2F842FCB002DD9D3 /* APIClient.swift */; };
 		54E7D5742F843153002DD9D3 /* HealthSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5732F84314E002DD9D3 /* HealthSamples.swift */; };
+		54E7D5772F8436FC002DD9D3 /* ContentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5762F8436EF002DD9D3 /* ContentViewModel.swift */; };
+		54E7D5792F844684002DD9D3 /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5782F844681002DD9D3 /* DateFormatters.swift */; };
+		54E7D57B2F844960002DD9D3 /* PermissionsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D57A2F84495E002DD9D3 /* PermissionsSectionView.swift */; };
+		54E7D57D2F844980002DD9D3 /* PayloadPreviewSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D57C2F84497E002DD9D3 /* PayloadPreviewSectionView.swift */; };
+		54E7D5802F844A78002DD9D3 /* WeightSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D57F2F844A75002DD9D3 /* WeightSectionView.swift */; };
+		54E7D5822F844B13002DD9D3 /* RestingHRSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5812F844B10002DD9D3 /* RestingHRSectionView.swift */; };
+		54E7D5842F844B57002DD9D3 /* HRVSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5832F844B55002DD9D3 /* HRVSectionView.swift */; };
+		54E7D5862F844B83002DD9D3 /* SleepNightAggregatesSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5852F844B80002DD9D3 /* SleepNightAggregatesSectionView.swift */; };
+		54E7D5882F844BBB002DD9D3 /* SleepSamplesSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E7D5872F844BB9002DD9D3 /* SleepSamplesSectionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,10 +41,19 @@
 		54E7D55F2F842FCB002DD9D3 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		54E7D5602F842FCB002DD9D3 /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
 		54E7D5612F842FCB002DD9D3 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
-		54E7D5632F842FCB002DD9D3 /*  HealthKitAnchorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = " HealthKitAnchorStore.swift"; sourceTree = "<group>"; };
+		54E7D5632F842FCB002DD9D3 /* HealthKitAnchorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitAnchorStore.swift; sourceTree = "<group>"; };
 		54E7D5642F842FCB002DD9D3 /* SyncStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStateStore.swift; sourceTree = "<group>"; };
 		54E7D5662F842FCB002DD9D3 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		54E7D5732F84314E002DD9D3 /* HealthSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSamples.swift; sourceTree = "<group>"; };
+		54E7D5762F8436EF002DD9D3 /* ContentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModel.swift; sourceTree = "<group>"; };
+		54E7D5782F844681002DD9D3 /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
+		54E7D57A2F84495E002DD9D3 /* PermissionsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsSectionView.swift; sourceTree = "<group>"; };
+		54E7D57C2F84497E002DD9D3 /* PayloadPreviewSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadPreviewSectionView.swift; sourceTree = "<group>"; };
+		54E7D57F2F844A75002DD9D3 /* WeightSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightSectionView.swift; sourceTree = "<group>"; };
+		54E7D5812F844B10002DD9D3 /* RestingHRSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestingHRSectionView.swift; sourceTree = "<group>"; };
+		54E7D5832F844B55002DD9D3 /* HRVSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVSectionView.swift; sourceTree = "<group>"; };
+		54E7D5852F844B80002DD9D3 /* SleepNightAggregatesSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNightAggregatesSectionView.swift; sourceTree = "<group>"; };
+		54E7D5872F844BB9002DD9D3 /* SleepSamplesSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSamplesSectionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +91,7 @@
 		54E7D5572F842FCB002DD9D3 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				54E7D5752F8436D3002DD9D3 /* Dashboard */,
 				54E7D5562F842FCB002DD9D3 /* ContentView.swift */,
 			);
 			path = Features;
@@ -111,7 +130,7 @@
 		54E7D5652F842FCB002DD9D3 /* Stores */ = {
 			isa = PBXGroup;
 			children = (
-				54E7D5632F842FCB002DD9D3 /*  HealthKitAnchorStore.swift */,
+				54E7D5632F842FCB002DD9D3 /* HealthKitAnchorStore.swift */,
 				54E7D5642F842FCB002DD9D3 /* SyncStateStore.swift */,
 			);
 			path = Stores;
@@ -120,9 +139,33 @@
 		54E7D5672F842FCB002DD9D3 /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				54E7D5782F844681002DD9D3 /* DateFormatters.swift */,
 				54E7D5662F842FCB002DD9D3 /* Notifications.swift */,
 			);
 			path = Support;
+			sourceTree = "<group>";
+		};
+		54E7D5752F8436D3002DD9D3 /* Dashboard */ = {
+			isa = PBXGroup;
+			children = (
+				54E7D57E2F844A45002DD9D3 /* View */,
+				54E7D5762F8436EF002DD9D3 /* ContentViewModel.swift */,
+			);
+			path = Dashboard;
+			sourceTree = "<group>";
+		};
+		54E7D57E2F844A45002DD9D3 /* View */ = {
+			isa = PBXGroup;
+			children = (
+				54E7D5872F844BB9002DD9D3 /* SleepSamplesSectionView.swift */,
+				54E7D5852F844B80002DD9D3 /* SleepNightAggregatesSectionView.swift */,
+				54E7D5832F844B55002DD9D3 /* HRVSectionView.swift */,
+				54E7D5812F844B10002DD9D3 /* RestingHRSectionView.swift */,
+				54E7D57F2F844A75002DD9D3 /* WeightSectionView.swift */,
+				54E7D57A2F84495E002DD9D3 /* PermissionsSectionView.swift */,
+				54E7D57C2F84497E002DD9D3 /* PayloadPreviewSectionView.swift */,
+			);
+			path = View;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -199,13 +242,22 @@
 			files = (
 				54E7D5692F842FCB002DD9D3 /* SyncState.swift in Sources */,
 				54E7D5742F843153002DD9D3 /* HealthSamples.swift in Sources */,
+				54E7D57D2F844980002DD9D3 /* PayloadPreviewSectionView.swift in Sources */,
 				54E7D56A2F842FCB002DD9D3 /* ContentView.swift in Sources */,
-				54E7D56B2F842FCB002DD9D3 /*  HealthKitAnchorStore.swift in Sources */,
+				54E7D5862F844B83002DD9D3 /* SleepNightAggregatesSectionView.swift in Sources */,
+				54E7D57B2F844960002DD9D3 /* PermissionsSectionView.swift in Sources */,
+				54E7D5792F844684002DD9D3 /* DateFormatters.swift in Sources */,
+				54E7D56B2F842FCB002DD9D3 /* HealthKitAnchorStore.swift in Sources */,
 				54E7D56C2F842FCB002DD9D3 /* Notifications.swift in Sources */,
 				54E7D56D2F842FCB002DD9D3 /* SyncStateStore.swift in Sources */,
+				54E7D5882F844BBB002DD9D3 /* SleepSamplesSectionView.swift in Sources */,
 				54E7D56E2F842FCB002DD9D3 /* SyncService.swift in Sources */,
+				54E7D5802F844A78002DD9D3 /* WeightSectionView.swift in Sources */,
+				54E7D5842F844B57002DD9D3 /* HRVSectionView.swift in Sources */,
 				54E7D56F2F842FCB002DD9D3 /* HealthSyncModels.swift in Sources */,
+				54E7D5772F8436FC002DD9D3 /* ContentViewModel.swift in Sources */,
 				54E7D5702F842FCB002DD9D3 /* HumanEngineIOSApp.swift in Sources */,
+				54E7D5822F844B13002DD9D3 /* RestingHRSectionView.swift in Sources */,
 				54E7D5712F842FCB002DD9D3 /* HealthKitService.swift in Sources */,
 				54E7D5722F842FCB002DD9D3 /* APIClient.swift in Sources */,
 			);

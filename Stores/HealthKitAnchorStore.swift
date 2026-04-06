@@ -1,5 +1,5 @@
 //
-//   HealthKitAnchorStore.swift
+//  HealthKitAnchorStore.swift
 //  HumanEngineIOS
 //
 //  Created by Сергей Щукин on 06.04.2026.
