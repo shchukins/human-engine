@@ -1,0 +1,23 @@
+//
+//  SyncState.swift
+//  HumanEngineIOS
+//
+//  Created by Сергей Щукин on 06.04.2026.
+//
+
+import Foundation
+
+enum SyncMode: String, Codable {
+    case full
+    case incremental
+}
+
+struct SyncState: Codable {
+    var lastSuccessfulSyncAt: Date?
+    var lastPayloadGeneratedAt: Date?
+    var lastErrorMessage: String?
+    var lastSentItemCount: Int = 0
+    var lastSyncMode: SyncMode?
+
+    static let empty = SyncState()
+}
