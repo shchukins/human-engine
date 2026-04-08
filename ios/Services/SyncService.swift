@@ -143,8 +143,16 @@ final class SyncService {
         }
     }
 
-    func sendPayload(_ payload: HealthSyncPayload, completion: @escaping (Result<Void, Error>) -> Void) {
-        APIClient.shared.sendHealthPayload(payload, completion: completion)
+    func sendPayload(
+        _ payload: HealthSyncPayload,
+        userID: String,
+        completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
+    ) {
+        APIClient.shared.sendHealthPayload(
+            payload,
+            userID: userID,
+            completion: completion
+        )
     }
 
     private func rebuildAffectedSleepNights(

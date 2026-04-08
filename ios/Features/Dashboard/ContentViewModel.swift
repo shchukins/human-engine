@@ -43,6 +43,8 @@ final class ContentViewModel {
     var payloadSummary: String = ""
     var syncState: SyncState = SyncStateStore.shared.load()
     var isSyncInProgress: Bool = false
+    
+    let backendUserID: String = "sergey"
 
     // MARK: - Permissions
 
@@ -157,15 +159,24 @@ final class ContentViewModel {
 
         let itemCount = payloadItemCount(payload)
 
-        SyncService.shared.sendPayload(payload) { [weak self] result in
+        SyncService.shared.sendPayload(
+            payload,
+            userID: backendUserID
+        ) { [weak self] result in
             guard let self else {
                 completion()
                 return
             }
 
             switch result {
-            case .success:
-                self.statusMessage = mode == .full ? "Full sync sent" : "Incremental sent"
+            case .success(let response):
+                self.statusMessage = """
+                \(mode == .full ? "Full sync sent" : "Incremental sent")
+                dates: \(response.affectedDates.count)
+                recovery: \(response.recoveryDaysRecomputed)
+                readiness: \(response.readinessDaysRecomputed)
+                """
+
                 self.syncState.lastSuccessfulSyncAt = Date()
                 self.syncState.lastPayloadGeneratedAt = Date()
                 self.syncState.lastErrorMessage = nil
