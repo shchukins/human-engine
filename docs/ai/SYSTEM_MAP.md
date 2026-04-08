@@ -15,13 +15,11 @@ Data Engine
 ↓
 Data Storage
 ↓
-Feature Extraction
+Normalized / Daily Features
 ↓
-Physiology Model
+Load Model + Recovery Model
 ↓
 Readiness Engine
-↓
-Prediction Engine (future)
 ↓
 Recommendation
 ↓
@@ -65,9 +63,11 @@ Model update
 
 Оценивает состояние человека.
 
-- physiology model  
-- training load  
-- fitness / fatigue  
+- load model v2
+- recovery model
+- fitness / fast fatigue / slow fatigue
+- readiness score
+- good day probability
 
 ---
 
@@ -151,9 +151,10 @@ Human Engine — это не один алгоритм.
 
 ### Далее:
 
-- feature layer  
-- physiology model  
-- readiness  
+- normalized and daily feature layer
+- load state v2
+- recovery-aware readiness
+- good day probability
 - prediction  
 - adaptive training  
 

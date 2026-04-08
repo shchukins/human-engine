@@ -1,8 +1,8 @@
 # Human Engine — Current Metrics Methodology
 
-**Version:** v1  
-**Status:** baseline  
-**Last updated:** 2026-03-30
+**Version:** v2 baseline  
+**Status:** active baseline  
+**Last updated:** 2026-04-08
 
 # Human Engine — методика расчета текущих метрик
 
@@ -10,7 +10,7 @@
 
 Этот документ кратко описывает, как в текущей версии Human Engine рассчитываются основные метрики тренировки и метрики состояния.
 
-Документ фиксирует **текущий базовый подход**, а не целевую финальную модель. Если реализация изменится, методику нужно обновить вместе с кодом.
+Документ фиксирует **текущий базовый подход для model v2**. Если реализация изменится, методику нужно обновить вместе с кодом.
 
 ## Область действия
 
@@ -25,9 +25,12 @@
 
 2. **Метрики состояния**
    - Fitness
-   - Fatigue
+   - Fatigue Fast
+   - Fatigue Slow
+   - Fatigue Total
    - Freshness
    - Readiness
+   - Good Day Probability
    - текстовый статус
 
 ---
@@ -173,10 +176,13 @@ TSS = (duration_sec * NP * IF) / (FTP * 3600) * 100
 
 ## 3. Метрики состояния
 
-Текущие метрики состояния в Human Engine основаны на простой модели тренировочной нагрузки с двумя сглаженными компонентами:
+Текущие метрики состояния в Human Engine основаны на load model v2 и recovery-aware readiness:
 
+- нелинейный дневной вход нагрузки -> `load_input`
 - долгосрочная нагрузка -> `Fitness`
-- краткосрочная нагрузка -> `Fatigue`
+- быстрая усталость -> `Fatigue Fast`
+- средняя по длительности усталость -> `Fatigue Slow`
+- итоговая готовность -> `Readiness`
 
 ### 3.1. Fitness
 
@@ -187,10 +193,10 @@ TSS = (duration_sec * NP * IF) / (FTP * 3600) * 100
 Типовая форма обновления:
 
 ```text
-Fitness_new = Fitness_prev + alpha_fitness * (TSS - Fitness_prev)
+Fitness_new = Fitness_prev + (load_input - Fitness_prev) / tau_fitness
 ```
 
-где `alpha_fitness` — коэффициент медленного сглаживания.
+Где `tau_fitness ≈ 40` дней.
 
 Смысл:
 
@@ -199,33 +205,68 @@ Fitness_new = Fitness_prev + alpha_fitness * (TSS - Fitness_prev)
 
 ---
 
-### 3.2. Fatigue
+### 3.2. Nonlinear load input
 
-`Fatigue` отражает краткосрочную накопленную усталость.
+Перед обновлением состояния дневной `TSS` преобразуется нелинейно:
+
+```text
+load_input = A * (1 - exp(-B * TSS))
+```
+
+Смысл:
+
+- рост нагрузки остается монотонным;
+- очень большие значения `TSS` не раздувают модель линейно;
+- 200 TSS не интерпретируется как строго 2 x 100 TSS.
+
+---
+
+### 3.3. Fatigue Fast
+
+`Fatigue Fast` отражает быстрый отклик усталости на недавнюю нагрузку.
 
 Типовая форма обновления:
 
 ```text
-Fatigue_new = Fatigue_prev + alpha_fatigue * (TSS - Fatigue_prev)
+FatigueFast_new = FatigueFast_prev + (load_input - FatigueFast_prev) / tau_fatigue_fast
 ```
 
-где `alpha_fatigue` больше, чем `alpha_fitness`.
-
-Смысл:
-
-- `Fatigue` реагирует на тренировки быстрее;
-- при отдыхе падает быстрее, чем `Fitness`.
+Где `tau_fatigue_fast ≈ 2` дня.
 
 ---
 
-### 3.3. Freshness
+### 3.4. Fatigue Slow
+
+`Fatigue Slow` отражает накопление усталости сериями тренировок.
+
+Типовая форма обновления:
+
+```text
+FatigueSlow_new = FatigueSlow_prev + (load_input - FatigueSlow_prev) / tau_fatigue_slow
+```
+
+Где `tau_fatigue_slow ≈ 7` дней.
+
+---
+
+### 3.5. Fatigue Total
+
+Итоговая усталость в model v2:
+
+```text
+FatigueTotal = FatigueFast + FatigueSlow
+```
+
+---
+
+### 3.6. Freshness
 
 `Freshness` считается как разница между долгосрочной и краткосрочной компонентой.
 
 Формула:
 
 ```text
-Freshness = Fitness - Fatigue
+Freshness = Fitness - FatigueTotal
 ```
 
 Интерпретация:
@@ -233,28 +274,53 @@ Freshness = Fitness - Fatigue
 - положительное значение означает более свежее состояние;
 - отрицательное значение означает накопленную усталость.
 
-Это упрощенная модель, которая не разделяет физиологические компоненты усталости и не использует сон, HRV или субъективное самочувствие.
+Это уже не единственный вход в readiness. В model v2 `Freshness` описывает load state, но не заменяет recovery state.
 
 ---
 
-### 3.4. Readiness
+### 3.7. Readiness
 
 `Readiness` — производная прикладная метрика Human Engine, переводящая текущее состояние в шкалу готовности.
 
-На текущем этапе `Readiness` опирается прежде всего на `Freshness` и отображается в шкале от 0 до 100.
+На текущем этапе `Readiness` опирается на сочетание `Freshness` и простого recovery score.
 
 Общий принцип:
 
-- чем ниже `Freshness`, тем ниже `Readiness`;
-- чем ближе состояние к восстановленному, тем выше `Readiness`.
+- низкий `Freshness` снижает `Readiness`;
+- слабый recovery signal также снижает `Readiness`, даже если load state выглядит приемлемо;
+- хорошее восстановление поддерживает высокий `Readiness`.
+
+Базовая формула:
+
+```text
+Readiness_raw =
+    w1 * Freshness +
+    w2 * RecoveryScoreSimple
+```
 
 ### Важно
 
-Точная функция преобразования `Freshness -> Readiness` должна быть зафиксирована в коде отдельно. В рамках текущей методики важно лишь то, что `Readiness` является **производной пользовательской метрикой**, а не прямой физиологической величиной.
+Точная нормализация `Readiness_raw -> Readiness` должна быть зафиксирована в коде отдельно. В рамках текущей методики важно, что `Readiness` является **производной пользовательской метрикой**, а не прямой физиологической величиной.
 
 ---
 
-### 3.5. Текстовый статус
+### 3.8. Good Day Probability
+
+Для вероятностного слоя model v2 используется:
+
+```text
+GoodDayProbability = sigmoid(Readiness_raw)
+```
+
+Эта метрика нужна для:
+
+- более мягкого маппинга в рекомендации;
+- снижения зависимости от жестких порогов;
+- дальнейшей калибровки decision layer.
+
+---
+
+### 3.9. Текстовый статус
 
 Текстовый статус является интерпретацией `Readiness` для интерфейса.
 
@@ -282,14 +348,13 @@ Freshness = Fitness - Fatigue
 
 ### Ограничения текущего подхода
 
-1. Модель опирается в основном на `TSS` и не учитывает напрямую:
-   - сон
-   - HRV
-   - субъективное состояние
-   - тип интервалов
-   - различие между видами усталости
+1. Recovery-контур пока использует простой aggregated score и еще не раскладывается полностью на:
+   - `sleep_score_simple`
+   - `hrv_dev`
+   - `rhr_dev`
+   - расширенные contextual signals
 
-2. `Readiness` пока не является физиологически полной моделью готовности. Это прикладная оценка на базе нагрузки.
+2. `Readiness` пока не является физиологически полной моделью готовности. Это прикладная оценка на базе нагрузки и базового recovery layer.
 
 3. При отсутствии сырого ряда мощности точность `NP`, `IF` и `TSS` зависит от внешнего источника.
 
@@ -318,9 +383,12 @@ Freshness = Fitness - Fatigue
 После применения новой тренировки система обновляет:
 
 - `fitness`
-- `fatigue`
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
 - `freshness`
 - `readiness`
+- `good_day_probability`
 - `status_label`
 
 Именно эти значения затем используются в интерфейсе и в будущих моделях рекомендаций.
@@ -343,11 +411,12 @@ Garmin и другие внешние системы используются к
 
 В следующих итерациях методику нужно дополнить:
 
-1. точной формулой или кодовой функцией перевода `Freshness` в `Readiness`;
-2. конкретными коэффициентами сглаживания для `Fitness` и `Fatigue`;
-3. правилами обработки пропусков и нулей в power stream;
-4. политикой выбора и обновления `FTP`;
-5. протоколом верификации против Garmin.
+1. точной формулой нормализации `Readiness_raw` и `GoodDayProbability`;
+2. конкретными коэффициентами `A` и `B` для `load_input`;
+3. правилами расчета `RecoveryScoreSimple` и его компонентов;
+4. правилами обработки пропусков и нулей в power stream;
+5. политикой выбора и обновления `FTP`;
+6. протоколом верификации против Garmin.
 
 ---
 
@@ -359,10 +428,15 @@ power data + FTP
     -> NP
     -> IF
     -> TSS
+    -> load_input
     -> Fitness
-    -> Fatigue
+    -> Fatigue Fast
+    -> Fatigue Slow
+    -> Fatigue Total
     -> Freshness
+    + RecoveryScoreSimple
     -> Readiness
+    -> GoodDayProbability
     -> Status
 ```
 
@@ -370,6 +444,6 @@ power data + FTP
 
 ## Статус документа
 
-Версия: draft v1  
+Версия: draft v2 baseline  
 Назначение: зафиксировать текущую baseline-логику расчета метрик в Human Engine  
 Язык: русский

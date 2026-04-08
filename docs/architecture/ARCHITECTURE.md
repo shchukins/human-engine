@@ -26,11 +26,11 @@ Backend (Data Engine)
 ↓
 PostgreSQL (Storage)
 ↓
-Processing / Features (future)
+Normalized / Daily Features
 ↓
-Modeling (future)
+Model V2
 ↓
-Decision layer (future)
+Insight / Decision layer
 
 ---
 
@@ -142,22 +142,26 @@ strava_activity_raw
 
 ### 6.2 Processing layer (planned)
 
-- feature extraction  
-- базовые метрики  
+- normalizing source data  
+- daily feature extraction  
+- базовые метрики нагрузки и восстановления  
 
 ---
 
-### 6.3 Modeling layer (planned)
+### 6.3 Modeling layer (implemented / evolving)
 
-- physiology model  
-- training load  
-- fitness / fatigue  
+- `load_state_daily_v2`  
+- `readiness_daily`  
+- load model with nonlinear load input  
+- fitness + fast / slow fatigue  
+- readiness from load state and recovery state  
+- `good_day_probability` as probability layer  
 
 ---
 
 ### 6.4 Decision layer (planned)
 
-- readiness  
+- daily readiness summary  
 - recommendation  
 - ride briefing  
 
@@ -234,10 +238,9 @@ strava_activity_raw
 
 Следующие шаги:
 
-- feature layer  
-- расчет метрик (TSS, CTL, ATL)  
-- physiology model  
-- readiness  
+- feature and normalization layer  
+- model v2 stabilization  
+- readiness and probability calibration  
 - prediction  
 
 ---

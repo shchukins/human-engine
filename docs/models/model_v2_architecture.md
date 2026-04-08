@@ -259,6 +259,12 @@ good_day_probability = sigmoid(readiness_score_raw)
 
 # 8. Roadmap
 
+- стабилизировать `load_state_daily_v2`
+- зафиксировать формулу `readiness_score_raw`
+- откалибровать `good_day_probability`
+- добавить `sleep_score_simple`, `hrv_dev`, `rhr_dev`
+- синхронизировать recommendation / ride briefing с probability layer
+
 ## Phase 1
 - load_state_daily_v2
 - fast / slow fatigue

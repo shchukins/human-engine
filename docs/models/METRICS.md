@@ -69,35 +69,63 @@ TSS = (Duration × NP × IF) / (FTP × 3600) × 100
 
 ---
 
-### 4.1 Daily Load
+### 4.1 Daily Training Load
 
 Сумма TSS за день.
 
 ---
 
-### 4.2 Acute Training Load (ATL)
+### 4.2 Nonlinear Load Input
 
-Краткосрочная нагрузка.
+Для model v2 дневная нагрузка подается в load model через нелинейную функцию.
 
-Экспоненциальное скользящее среднее:
+Формула:
 
-- период ~7 дней  
-
----
-
-### 4.3 Chronic Training Load (CTL)
-
-Долгосрочная нагрузка.
-
-Экспоненциальное скользящее среднее:
-
-- период ~42 дня  
+```text
+load_input = A * (1 - exp(-B * TSS))
+```
 
 ---
 
-### 4.4 Training Stress Balance (TSB)
+### 4.3 Fitness
 
-TSB = CTL - ATL
+Долгосрочная адаптационная компонента.
+
+Экспоненциальное скользящее среднее:
+
+- `tau_fitness ≈ 40`
+
+---
+
+### 4.4 Fatigue Fast
+
+Короткая компонента усталости.
+
+- `tau_fatigue_fast ≈ 2`
+
+---
+
+### 4.5 Fatigue Slow
+
+Средняя по длительности компонента усталости.
+
+- `tau_fatigue_slow ≈ 7`
+
+---
+
+### 4.6 Fatigue Total
+
+```text
+fatigue_total = fatigue_fast + fatigue_slow
+```
+
+---
+
+### 4.7 Freshness
+
+```text
+freshness = fitness - fatigue_total
+```
 
 ---
 
@@ -107,36 +135,51 @@ TSB = CTL - ATL
 
 ### 5.1 Fatigue
 
-≈ ATL  
+В model v2 представлена как:
+
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
 
 ---
 
 ### 5.2 Fitness
 
-≈ CTL  
+`fitness` остается отдельной сглаженной компонентой load state.
 
 ---
 
 ### 5.3 Form
 
-≈ TSB  
+В качестве основной прикладной метрики model v2 использует `freshness`.
+
+Legacy-метрики `CTL / ATL / TSB` могут использоваться только как reference baseline или для обратной совместимости.
 
 ---
 
-## 6. Readiness (initial model)
+## 6. Readiness (model v2)
 
 Readiness — ключевая метрика системы.
 
-Начальная модель:
+В model v2 readiness:
 
-- основана на TSB  
-- корректируется по правилам  
+- не равна `freshness`
+- рассчитывается из `load_state + recovery_state`
+- может сопровождаться `good_day_probability`
 
-Пример:
+Базовая формула:
 
-- TSB < -20 → низкая готовность  
-- TSB ~ 0 → нормальная  
-- TSB > 10 → высокая  
+```text
+readiness_score_raw =
+    w1 * freshness +
+    w2 * recovery_score_simple
+```
+
+Probability layer:
+
+```text
+good_day_probability = sigmoid(readiness_score_raw)
+```
 
 ---
 
@@ -154,14 +197,14 @@ Readiness — ключевая метрика системы.
 
 Планируется добавить:
 
-- HR-based метрики  
-- HRV  
-- сон  
-- recovery score  
+- `sleep_score_simple`
+- `hrv_dev`
+- `rhr_dev`
+- уточненную калибровку probability / readiness zones
 
 Но:
 
-- только после стабилизации базовой модели  
+- только без потери прозрачности и versioning
 
 ---
 
@@ -171,4 +214,3 @@ Readiness — ключевая метрика системы.
 
 - фиксировать версию  
 - не менять исторические расчеты  
-

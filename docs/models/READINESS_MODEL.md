@@ -34,10 +34,15 @@
 
 Модель использует следующие метрики:
 
-- CTL (fitness)  
-- ATL (fatigue)  
-- TSB (form)  
+- `freshness` из `load_state_daily_v2`  
+- `recovery_score_simple` из `health_recovery_daily`  
 - recent training load  
+
+Дополнительно в расширенной версии могут использоваться:
+
+- `sleep_score_simple`
+- `hrv_dev`
+- `rhr_dev`
 
 ---
 
@@ -45,23 +50,44 @@
 
 Основная идея:
 
-> readiness определяется балансом нагрузки и восстановления
+> readiness определяется не только нагрузкой, а сочетанием load state и recovery state
 
-Базовая формула:
+Базовая формула v2:
 
-TSB = CTL - ATL
+```text
+readiness_score_raw =
+    w1 * freshness +
+    w2 * recovery_score_simple
+```
+
+Где:
+
+- `freshness = fitness - fatigue_total`
+- `fatigue_total = fatigue_fast + fatigue_slow`
+
+Расширенная формула v2+:
+
+```text
+readiness_score_raw =
+    w1 * freshness
+  + w2 * recovery_score
+  + w3 * hrv_dev
+  - w4 * rhr_dev
+  + w5 * sleep_score
+```
 
 ---
 
 ## 5. Readiness zones
 
-Модель делит состояние на зоны:
+Модель делит состояние на зоны на основе `readiness_score` и/или `good_day_probability`.
 
 ### 5.1 Low readiness
 
 Условие:
 
-- TSB < -20  
+- низкий `readiness_score`
+- низкая `good_day_probability`
 
 Интерпретация:
 
@@ -78,7 +104,8 @@ TSB = CTL - ATL
 
 Условие:
 
-- -20 ≤ TSB ≤ +5  
+- средний `readiness_score`
+- умеренная `good_day_probability`
 
 Интерпретация:
 
@@ -94,7 +121,8 @@ TSB = CTL - ATL
 
 Условие:
 
-- TSB > +5  
+- высокий `readiness_score`
+- высокая `good_day_probability`
 
 Интерпретация:
 
@@ -108,7 +136,7 @@ TSB = CTL - ATL
 
 ## 6. Adjustments
 
-Базовая модель может корректироваться:
+Базовая модель уже включает recovery-контур и может быть расширена:
 
 ---
 
@@ -142,12 +170,26 @@ TSB = CTL - ATL
 
 ---
 
+### 6.4 Recovery signals
+
+Если:
+
+- sleep ниже baseline
+- HRV ниже baseline
+- resting HR выше baseline
+
+→ снижать readiness даже при приемлемом `freshness`
+
+---
+
 ## 7. Output
 
 Результат модели:
 
-- readiness score (число или категория)  
-- тренировочная рекомендация  
+- `readiness_score`
+- `good_day_probability`
+- readiness zone
+- вход для тренировочной рекомендации
 
 ---
 
@@ -164,11 +206,9 @@ TSB = CTL - ATL
 
 Текущая модель:
 
-- не учитывает HR / HRV  
-- не учитывает сон  
-- не учитывает субъективное состояние  
-
-Это упрощенная модель (MVP).
+- использует простой recovery score как текущий recovery-контур
+- пока не фиксирует окончательную калибровку весов и зон
+- требует дальнейшей верификации на реальных данных
 
 ---
 
@@ -176,10 +216,9 @@ TSB = CTL - ATL
 
 Планируется:
 
-- HR-based корректировки  
-- HRV  
-- sleep  
-- адаптивная модель  
+- калибровка весов `freshness` и `recovery_score_simple`
+- явные `sleep_score_simple`, `hrv_dev`, `rhr_dev`
+- уточнение зон и probability thresholds
 
 Но:
 
@@ -194,9 +233,10 @@ TSB = CTL - ATL
 проверять:
 
 1. входные данные  
-2. расчет CTL / ATL  
-3. расчет TSB  
-4. примененные корректировки  
+2. расчет `load_state_daily_v2`
+3. расчет `health_recovery_daily`
+4. формирование `readiness_score_raw`
+5. примененные правила маппинга в zone / probability
 
 ---
 

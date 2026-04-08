@@ -50,7 +50,9 @@
 Компоненты состояния:
 
 - Fitness (долгосрочная адаптация)  
-- Fatigue (краткосрочная усталость)  
+- Fatigue Fast (быстрый отклик усталости)
+- Fatigue Slow (накопление усталости сериями тренировок)
+- Fatigue Total = Fast + Slow
 
 ---
 
@@ -60,14 +62,25 @@
 Оценка текущей готовности к нагрузке.
 
 Основывается на:
-- fatigue  
-- fitness  
-- недавней активности  
+- load state
+- recovery state
+- недавней активности
 
 Должна быть:
 - детерминированной  
 - объяснимой  
 - проверяемой  
+
+---
+
+### Good Day Probability
+Вероятностное представление readiness.
+
+Используется для:
+
+- мягкого rule-based маппинга в рекомендации
+- снижения зависимости от жестких порогов
+- explainable decision support
 
 ---
 
@@ -102,7 +115,7 @@
 ### Pipeline
 Последовательность обработки данных:
 
-ingestion → storage → features → models → decision  
+ingestion → storage → normalized features → models → decision  
 
 ---
 

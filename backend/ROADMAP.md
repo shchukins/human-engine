@@ -2,7 +2,8 @@ Next steps
 
 • activity streams ingestion
 • feature extraction
-• training load metrics
-• CTL / ATL
+• recovery normalization
+• training load metrics and load state v2
+• readiness and good day probability
 • performance model
 • iOS client

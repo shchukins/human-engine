@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from fastapi import HTTPException
+
+from backend.db import get_conn
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _normalize_freshness(freshness: float | None) -> float | None:
+    # Переводим freshness в грубую шкалу 0..100.
+    # Это временная эвристика для V2, пока без probability calibration.
+    if freshness is None:
+        return None
+
+    return _clamp(50.0 + freshness, 0.0, 100.0)
+
+
+def _describe_readiness_status(score: float | None) -> str:
+    if score is None:
+        return "n/a"
+    if score <= 24:
+        return "Высокая усталость"
+    if score <= 44:
+        return "Нагрузка"
+    if score <= 64:
+        return "Нормальная готовность"
+    if score <= 84:
+        return "Хорошая готовность"
+    return "Очень свежий"
+
+
+def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[str, Any]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select freshness
+                from load_state_daily_v2
+                where user_id = %s
+                  and date = %s
+                  and version = 'v2';
+                """,
+                (user_id, target_date),
+            )
+            load_row = cur.fetchone()
+
+            cur.execute(
+                """
+                select recovery_score_simple
+                from health_recovery_daily
+                where user_id = %s
+                  and date = %s;
+                """,
+                (user_id, target_date),
+            )
+            recovery_row = cur.fetchone()
+
+            freshness = load_row[0] if load_row else None
+            recovery_score_simple = recovery_row[0] if recovery_row else None
+
+            if freshness is None and recovery_score_simple is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"no load or recovery data found for user_id={user_id} date={target_date}",
+                )
+
+            freshness_norm = _normalize_freshness(freshness)
+
+            # V2 baseline formula:
+            # readiness = 60% load-state + 40% recovery-state
+            if freshness_norm is None:
+                readiness_score_raw = recovery_score_simple
+            elif recovery_score_simple is None:
+                readiness_score_raw = freshness_norm
+            else:
+                readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
+
+            readiness_score = (
+                _clamp(round(readiness_score_raw, 1), 0.0, 100.0)
+                if readiness_score_raw is not None
+                else None
+            )
+
+            good_day_probability = (
+                round(readiness_score / 100.0, 3)
+                if readiness_score is not None
+                else None
+            )
+
+            status_text = _describe_readiness_status(readiness_score)
+
+            explanation_json = {
+                "freshness": freshness,
+                "freshness_norm": freshness_norm,
+                "recovery_score_simple": recovery_score_simple,
+                "weights": {
+                    "freshness_norm": 0.6,
+                    "recovery_score_simple": 0.4,
+                },
+                "formula": "0.6 * freshness_norm + 0.4 * recovery_score_simple",
+            }
+
+            cur.execute(
+                """
+                insert into readiness_daily (
+                    user_id,
+                    date,
+                    freshness,
+                    recovery_score_simple,
+                    readiness_score_raw,
+                    readiness_score,
+                    good_day_probability,
+                    status_text,
+                    explanation_json,
+                    version,
+                    updated_at
+                )
+                values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, 'v2', now()
+                )
+                on conflict (user_id, date, version) do update set
+                    freshness = excluded.freshness,
+                    recovery_score_simple = excluded.recovery_score_simple,
+                    readiness_score_raw = excluded.readiness_score_raw,
+                    readiness_score = excluded.readiness_score,
+                    good_day_probability = excluded.good_day_probability,
+                    status_text = excluded.status_text,
+                    explanation_json = excluded.explanation_json,
+                    updated_at = now();
+                """,
+                (
+                    user_id,
+                    target_date,
+                    freshness,
+                    recovery_score_simple,
+                    readiness_score_raw,
+                    readiness_score,
+                    good_day_probability,
+                    status_text,
+                    json.dumps(explanation_json),
+                ),
+            )
+            conn.commit()
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "date": target_date,
+        "freshness": freshness,
+        "recovery_score_simple": recovery_score_simple,
+        "readiness_score": readiness_score,
+        "good_day_probability": good_day_probability,
+        "status_text": status_text,
+    }
