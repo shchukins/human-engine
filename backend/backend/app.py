@@ -30,7 +30,13 @@ from backend.services.strava_client import (
     fetch_activity_streams,
     list_activities,
 )
-
+from backend.schemas.healthkit import HealthIngestResponse, HealthSyncPayload
+from backend.services.healthkit_ingest import save_healthkit_ingest_raw
+from backend.services.healthkit_processing import process_latest_healthkit_raw
+from backend.services.health_recovery_daily import recompute_health_recovery_daily_for_date
+from backend.services.load_state_v2 import recompute_load_state_daily_v2
+from backend.services.readiness_daily import recompute_readiness_daily_for_date
+from backend.services.healthkit_pipeline import ingest_and_process_healthkit_payload
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
 
@@ -1150,3 +1156,75 @@ def debug_daily_readiness(user_id: str):
     except psycopg.Error as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.post("/api/v1/healthkit/ingest/{user_id}", response_model=HealthIngestResponse)
+def ingest_healthkit_payload(user_id: str, payload: HealthSyncPayload):
+    try:
+        save_healthkit_ingest_raw(user_id=user_id, payload=payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"failed to persist healthkit payload: {str(e)[:300]}",
+        ) from e
+
+    return HealthIngestResponse(
+        user_id=user_id,
+        sleep_nights_count=len(payload.sleepNights),
+        resting_hr_count=len(payload.restingHeartRateDaily),
+        hrv_count=len(payload.hrvSamples),
+        latest_weight_included=payload.latestWeight is not None,
+    )
+
+@app.post("/api/v1/healthkit/process-latest/{user_id}")
+def process_latest_healthkit_payload(user_id: str):
+    return process_latest_healthkit_raw(user_id=user_id)
+
+
+@app.post("/api/v1/healthkit/recovery-daily/{user_id}/{target_date}")
+def recompute_health_recovery_daily_endpoint(user_id: str, target_date: str):
+    return recompute_health_recovery_daily_for_date(
+        user_id=user_id,
+        target_date=target_date,
+    )
+
+
+@app.post("/api/v1/model/load-state-v2/{user_id}")
+def recompute_load_state_daily_v2_endpoint(user_id: str):
+    return recompute_load_state_daily_v2(user_id=user_id)
+
+
+@app.post("/api/v1/model/readiness-daily/{user_id}/{target_date}")
+def recompute_readiness_daily_endpoint(user_id: str, target_date: str):
+    return recompute_readiness_daily_for_date(
+        user_id=user_id,
+        target_date=target_date,
+    )
+
+
+@app.post("/api/v1/healthkit/ingest-and-process/{user_id}")
+def ingest_and_process_healthkit_payload_endpoint(user_id: str, payload: HealthSyncPayload):
+    try:
+        return ingest_and_process_healthkit_payload(
+            user_id=user_id,
+            payload=payload,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"failed to ingest and process healthkit payload: {str(e)[:300]}",
+        ) from e
+    
+
+@app.post("/api/v1/healthkit/full-sync/{user_id}")
+def full_sync_healthkit_payload_endpoint(user_id: str, payload: HealthSyncPayload):
+    try:
+        result = ingest_and_process_healthkit_payload(
+            user_id=user_id,
+            payload=payload,
+        )
+        print("FULL_SYNC_RESULT:", result)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"failed to run healthkit full sync: {str(e)[:300]}",
+        ) from e

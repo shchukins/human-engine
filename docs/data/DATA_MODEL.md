@@ -156,7 +156,7 @@ Streams данных:
 
 ### 5.3 daily_fitness_state
 
-Состояние:
+Legacy-состояние (V1 baseline):
 
 - CTL  
 - ATL  
@@ -164,12 +164,41 @@ Streams данных:
 
 ---
 
-### 5.4 readiness_state
+### 5.4 health_recovery_daily
+
+Дневная recovery-агрегация:
+
+- sleep_minutes
+- resting_hr_bpm
+- hrv_daily_median_ms
+- weight_kg
+- recovery_score_simple
+
+---
+
+### 5.5 load_state_daily_v2
+
+Load model v2:
+
+- tss
+- load_input_nonlinear
+- fitness
+- fatigue_fast
+- fatigue_slow
+- fatigue_total
+- freshness
+
+---
+
+### 5.6 readiness_daily
 
 Оценка готовности:
 
-- readiness score  
-- readiness zone  
+- freshness
+- recovery_score
+- readiness_score
+- good_day_probability
+- explanation_json
 
 ---
 
@@ -181,7 +210,9 @@ Streams данных:
 - ingest_job → activity_raw (1:1)  
 - activity_raw → activity_metrics (1:1)  
 - activity_metrics → daily_training_load (N:1)  
-- daily_training_load → fitness_state (N:1)  
+- daily_training_load → load_state_daily_v2 (N:1)
+- health_recovery_daily → readiness_daily (N:1)
+- load_state_daily_v2 → readiness_daily (N:1)
 
 ---
 
@@ -197,7 +228,7 @@ Metrics
 ↓
 Daily aggregates
 ↓
-Fitness state
+Load state + Recovery state
 ↓
 Readiness
 

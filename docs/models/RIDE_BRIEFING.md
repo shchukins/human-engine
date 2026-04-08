@@ -37,16 +37,17 @@ Ride briefing строится на основе:
 
 - readiness zone
 - readiness score
+- good_day_probability
+- freshness
+- recovery signals
 - recent training load
 - consecutive training days
-- recovery signals, если они есть в модели
 
 Минимально достаточный вход для MVP:
 
-- CTL
-- ATL
-- TSB
-- корректировки readiness
+- `readiness_daily`
+- `load_state_daily_v2`
+- recovery summary из `health_recovery_daily`
 
 ---
 
@@ -81,8 +82,8 @@ Ride briefing должен содержать:
 
 Примеры:
 
-- высокая накопленная усталость
-- нормальный баланс нагрузки и восстановления
+- высокая накопленная усталость при слабом recovery signal
+- сбалансированное состояние load и recovery
 - хорошее восстановление после снижения нагрузки
 
 ---
@@ -104,7 +105,7 @@ Ride briefing должен содержать:
 Если readiness = low:
 
 - recommendation = rest или easy
-- explanation = усталость превышает желаемый уровень
+- explanation = сочетание freshness и recovery указывает на низкую готовность
 
 ---
 
@@ -113,7 +114,7 @@ Ride briefing должен содержать:
 Если readiness = moderate:
 
 - recommendation = moderate
-- explanation = состояние позволяет выполнить обычную нагрузку
+- explanation = load state и recovery state допускают обычную нагрузку
 
 ---
 
@@ -122,7 +123,7 @@ Ride briefing должен содержать:
 Если readiness = high:
 
 - recommendation = hard или key workout
-- explanation = текущий баланс указывает на высокую готовность
+- explanation = load state стабилен, recovery поддерживает высокую готовность
 
 ---
 
@@ -132,7 +133,8 @@ Ride briefing должен содержать:
 
 - был резкий всплеск нагрузки
 - несколько дней подряд были тренировки
-- наблюдается накопление fatigue
+- recovery signals ухудшились
+- наблюдается накопление `fatigue_total`
 
 Итоговая рекомендация может быть повышена только в пределах заранее определенных правил.
 
@@ -146,7 +148,7 @@ Ride briefing должен содержать:
 
 - Status: Moderate readiness
 - Recommendation: Moderate load
-- Reason: Balanced training load with no major fatigue signal
+- Reason: Balanced load state with adequate recovery signal
 
 Для пользовательского интерфейса могут существовать разные представления,
 но логическая структура должна оставаться одинаковой.

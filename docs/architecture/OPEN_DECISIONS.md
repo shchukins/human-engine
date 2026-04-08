@@ -15,35 +15,39 @@
 
 ### Context
 
-Readiness — ключевая метрика системы.
+Базовая структура readiness в model v2 уже определена:
 
-Но не определено:
+- `LoadState + RecoveryState -> Readiness -> GoodDayProbability`
+- load state использует `fitness`, `fatigue_fast`, `fatigue_slow`, `freshness`
+- recovery state использует sleep / HRV / resting HR aggregates
 
-- точная формула  
-- набор входных параметров  
-- баланс между простотой и точностью  
+Но все еще не определены:
+
+- точные веса readiness formula
+- калибровка probability thresholds
+- схема zone mapping
 
 ---
 
 ### Options
 
-1. Простая модель (CTL / ATL / TSB аналог)
-2. Расширенная модель (учет HR, HRV, сна)
-3. Гибридная модель
+1. Минимальная v2: `freshness + recovery_score_simple`
+2. Расширенная v2+: `freshness + recovery_score + hrv_dev + rhr_dev + sleep_score`
+3. Версионируемый гибрид с explicit calibration
 
 ---
 
 ### Open questions
 
-- какой минимальный набор данных нужен  
-- насколько модель должна быть объяснимой  
-- допустима ли аппроксимация  
+- какой минимальный recovery input обязателен
+- как калибровать probability без black-box логики
+- как versioning readiness model отражать в storage
 
 ---
 
 ### Status
 
-open  
+partially resolved  
 
 ---
 
@@ -134,9 +138,9 @@ open
 
 ### Options
 
-1. Strava-only (MVP)
-2. Multi-source aggregation
-3. Приоритет Apple Health  
+1. Strava-only
+2. Strava + HealthKit recovery layer
+3. Multi-source aggregation with explicit source priority
 
 ---
 

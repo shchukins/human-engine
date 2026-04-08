@@ -2,7 +2,7 @@
 
 > A system for analyzing training load, estimating athlete state, and supporting training decisions.
 >
-> `signal -> state -> readiness -> decision`
+> `signal -> load/recovery state -> readiness -> decision`
 
 ## Core Idea
 
@@ -14,8 +14,8 @@ It is an engineering system designed to support decisions through explicit, repr
 ## What Human Engine Does
 
 - Collects training data
-- Estimates physiological state
-- Calculates readiness
+- Estimates load and recovery state
+- Calculates readiness and good-day probability
 - Supports training load decisions
 
 ## What the System Is
@@ -41,7 +41,10 @@ The system is currently in a stabilization phase. The current setup includes:
 - Backend built with FastAPI
 - PostgreSQL
 - Strava ingestion pipeline
+- Health recovery ingestion and normalization
 - Raw data storage
+- Daily load and recovery feature layer
+- Model V2 architecture for readiness
 - Docker deployment
 - Public API exposed through a VPS
 
@@ -58,19 +61,22 @@ See: [docs/ai/CURRENT_PRIORITIES.md](docs/ai/CURRENT_PRIORITIES.md)
 ### Data Flow
 
 ```text
-Strava
-   |
-   v
-Webhook
-   |
-   v
-Backend
-   |
-   v
-PostgreSQL
-   |
-   v
-Metrics / Models (next)
+Strava + HealthKit
+        |
+        v
+     Backend
+        |
+        v
+   PostgreSQL
+        |
+        v
+Normalized / Daily Features
+        |
+        v
+Model V2
+        |
+        v
+Readiness / Insights
 ```
 
 ### Infrastructure
@@ -115,8 +121,9 @@ docs/           system documentation
 ### Core Docs
 
 - [backend/README.md](backend/README.md)
-- [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md)
+- [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
 - [backend/ROADMAP.md](backend/ROADMAP.md)
+- [docs/models/model_v2_architecture.md](docs/models/model_v2_architecture.md)
 
 ### Product and AI Context
 
@@ -128,9 +135,10 @@ docs/           system documentation
 ## Short Roadmap
 
 - Streams ingestion
-- Feature extraction
-- Training load metrics: TSS, CTL, ATL
-- Readiness model
+- Recovery data normalization
+- Load model v2: nonlinear load, fitness, fast/slow fatigue
+- Readiness model v2
+- Good day probability
 - Prediction engine
 - iOS client
 
