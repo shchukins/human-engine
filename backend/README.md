@@ -98,6 +98,23 @@ FastAPI + PostgreSQL
 - HRV daily median
 - latest known weight
 - `recovery_score_simple`
+- `recovery_explanation_json`
+
+Текущая recovery baseline-логика:
+
+- использует baseline-aware scoring
+- считает `hrv_baseline` и `rhr_baseline` по предыдущему окну
+- считает `hrv_dev` и `rhr_dev`
+- считает component scores:
+  - `sleep_score`
+  - `hrv_score`
+  - `rhr_score`
+- сохраняет breakdown в `recovery_explanation_json`
+
+Важно:
+
+- поле по-прежнему называется `recovery_score_simple` для совместимости схемы и API
+- по смыслу это уже не purely naive heuristic-only score
 
 ### 5. Load model v2
 
@@ -116,6 +133,12 @@ FastAPI + PostgreSQL
 - хранит `fatigue_total` как взвешенную смесь fast/slow fatigue
 - хранит `freshness = fitness - fatigue_total`
 
+Параметры:
+
+- `tau_fitness = 40`
+- `tau_fatigue_fast = 4`
+- `tau_fatigue_slow = 9`
+
 ### 6. Readiness layer
 
 Реализована таблица:
@@ -132,6 +155,14 @@ FastAPI + PostgreSQL
 - сохраняет `good_day_probability`
 - сохраняет `status_text`
 - сохраняет `explanation_json`
+
+Важно:
+
+- readiness хранится отдельно от `load_state_daily_v2`
+- readiness не равен `freshness`
+- текущий `good_day_probability` является baseline probability-like mapping:
+  - `good_day_probability = readiness_score / 100`
+  - это не статистически откалиброванная вероятность
 
 ## HealthKit full sync pipeline
 
@@ -150,7 +181,7 @@ POST /api/v1/healthkit/full-sync/{user_id}
 
 - recovery пересчитывается поверх normalized health tables
 - readiness пересчитывается как отдельный слой
-- readiness больше не является просто полем внутри load state
+- public API уже работает end-to-end через VPS и Caddy
 
 ## Технологический стек
 
@@ -192,7 +223,9 @@ docker compose стек для сервера.
 Уже реализовано:
 
 - HealthKit ingestion и normalization
+- HealthKit full-sync orchestration
 - recovery daily aggregation
+- recovery explanation payload
 - load model v2 baseline
 - readiness baseline
 - good day probability baseline
@@ -202,6 +235,7 @@ docker compose стек для сервера.
 - activity streams ingestion
 - расширение feature extraction
 - калибровка readiness / probability
+- decision layer / recommendation layer
 - API и UI для user-facing insights
 - iOS integration polish
 

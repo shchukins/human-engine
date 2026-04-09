@@ -118,7 +118,7 @@ fatigue_slow[d] = fatigue_slow[d-1] + (load_input[d] - fatigue_slow[d-1]) / 9
 
 ### 4.6 Fatigue Total
 
-В текущей model v2 это не сумма, а взвешенная смесь:
+В текущей Model V2 это не сумма, а взвешенная смесь:
 
 ```text
 fatigue_total = 0.65 * fatigue_fast + 0.35 * fatigue_slow
@@ -160,17 +160,18 @@ freshness = fitness - fatigue_total
 
 ### 5.2 Recovery Score Simple
 
-`recovery_score_simple` — baseline heuristic score из `health_recovery_daily`.
+`recovery_score_simple` — текущее имя поля baseline recovery score из `health_recovery_daily`.
 
 Свойства:
 
 - диапазон `0..100`
 - считается из сна, resting HR и HRV
-- пока не использует индивидуальные baseline deviations
+- уже использует baseline HRV и baseline resting HR, если они доступны
+- breakdown сохраняется в `recovery_explanation_json`
 
 ---
 
-## 6. Readiness (model v2 baseline)
+## 6. Readiness (Model V2 baseline)
 
 Readiness — ключевая метрика системы.
 
@@ -244,9 +245,9 @@ good_day_probability = readiness_score / 100
 Планируется добавить:
 
 - нелинейную трансформацию load input
-- `sleep_score_simple`
-- `hrv_dev`
-- `rhr_dev`
+- возможное прямое использование `sleep_score`
+- возможное прямое использование `hrv_dev`
+- возможное прямое использование `rhr_dev`
 - уточненную калибровку probability / readiness zones
 
 Но:
@@ -258,7 +259,9 @@ good_day_probability = readiness_score / 100
 
 ## 10. Versioning
 
-При изменении формул:
+Сейчас versioned daily metrics уже есть как минимум для:
 
-- фиксировать версию
-- не менять исторические расчеты молча
+- `load_state_daily_v2`
+- `readiness_daily`
+
+Recovery layer пока документируется через текущее baseline behavior и explanation payload.

@@ -1,6 +1,6 @@
 # Human Engine
 
-> A system for analyzing training load, estimating athlete state, and supporting training decisions.
+> A deterministic system for analyzing training load, estimating athlete state, and supporting training decisions.
 >
 > `signal -> load state + recovery state -> readiness -> decision`
 
@@ -17,7 +17,7 @@ It is an engineering system designed to support decisions through explicit, repr
 - Stores raw source payloads for reproducibility
 - Builds daily load and recovery state
 - Calculates readiness and good-day probability
-- Supports training load decisions
+- Provides deterministic outputs for downstream decision support
 
 ## What the System Is
 
@@ -52,12 +52,20 @@ The current backend already includes:
 - Docker deployment
 - Public API exposed through a VPS
 
+Implemented model baseline:
+
+- `LoadState + RecoveryState -> Readiness -> GoodDayProbability`
+- HealthKit full-sync endpoint `POST /api/v1/healthkit/full-sync/{user_id}`
+- baseline-aware recovery scoring stored in `health_recovery_daily`
+- explanation payloads for recovery and readiness
+- deterministic storage-backed daily layers for load, recovery, and readiness
+
 ### Current Focus
 
 - Deterministic core
 - Transparent logic
 - Reproducible results
-- Stabilization of model v2 and downstream decision outputs
+- Stabilization of model v2 baseline and downstream decision outputs
 
 See: [docs/ai/CURRENT_PRIORITIES.md](docs/ai/CURRENT_PRIORITIES.md)
 
@@ -140,6 +148,7 @@ docs/           system documentation
 - [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
 - [backend/ROADMAP.md](backend/ROADMAP.md)
 - [docs/models/model_v2_architecture.md](docs/models/model_v2_architecture.md)
+- [docs/product/CURRENT_STATE.md](docs/product/CURRENT_STATE.md)
 
 ### Product and AI Context
 
@@ -155,15 +164,19 @@ docs/           system documentation
 - Readiness contour: `load_state_daily_v2 + health_recovery_daily -> readiness_daily`
 - `freshness = fitness - fatigue_total`
 - `fatigue_total` is a weighted mixture of `fatigue_fast` and `fatigue_slow`
+- `recovery_score_simple` is currently produced by a baseline-aware recovery scoring layer
 - Readiness is not equal to freshness
 - `good_day_probability` is stored as a separate probability-like output
+- `good_day_probability` is currently `readiness_score / 100`, not a statistically calibrated probability
 
 ## Short Roadmap
 
 Already implemented:
 
 - HealthKit ingestion and normalization
+- HealthKit full-sync orchestration
 - Recovery daily aggregation
+- Recovery explanation payload
 - Load model v2
 - Readiness model v2 baseline
 - Good day probability baseline
@@ -173,6 +186,7 @@ Next:
 - activity streams ingestion
 - feature extraction expansion
 - readiness / probability calibration
+- decision layer / recommendation layer
 - prediction engine
 - iOS client integration polish
 
@@ -187,4 +201,4 @@ Next:
 
 ## Status
 
-Experimental engineering project with a deterministic product core and an implemented model v2 baseline in backend.
+Experimental engineering project with a deterministic product core and an implemented Model V2 baseline in backend.

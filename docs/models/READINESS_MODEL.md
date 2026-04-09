@@ -41,7 +41,13 @@
 - readiness больше не равен freshness
 - recovery contour не заменяет fatigue, а дополняет load contour
 
-Дополнительные сигналы, такие как `sleep_score_simple`, `hrv_dev`, `rhr_dev`, пока не являются отдельными входами readiness formula.
+Дополнительные recovery-компоненты уже считаются внутри recovery layer, но пока не входят в readiness formula напрямую как отдельные веса:
+
+- `sleep_score`
+- `hrv_score`
+- `rhr_score`
+- `hrv_dev`
+- `rhr_dev`
 
 ---
 
@@ -78,6 +84,12 @@ Recovery contour формируется в `health_recovery_daily` из:
 Текущий прикладной выход этого слоя:
 
 - `recovery_score_simple`
+- `recovery_explanation_json`
+
+Важно:
+
+- имя `recovery_score_simple` сохранено для совместимости схемы и API
+- по факту текущий backend baseline уже использует baseline-aware scoring
 
 ### 4.3 Baseline formula v2
 
@@ -167,8 +179,8 @@ good_day_probability = readiness_score / 100
 
 Текущая модель:
 
-- использует простой recovery score как baseline recovery contour
-- пока не использует индивидуальные baseline deviations
+- использует агрегированный recovery score как вход readiness
+- пока не подает `hrv_dev`, `rhr_dev` и component scores в readiness formula напрямую
 - пока не имеет отдельной probability calibration
 - требует дальнейшей верификации на реальных данных
 
@@ -179,7 +191,7 @@ good_day_probability = readiness_score / 100
 Планируется:
 
 - калибровка весов `freshness_norm` и `recovery_score_simple`
-- явные `sleep_score_simple`, `hrv_dev`, `rhr_dev`
+- возможное явное использование `sleep_score`, `hrv_dev`, `rhr_dev` в readiness formula
 - уточнение interpretation layer для `good_day_probability`
 - уточнение decision mapping
 

@@ -4,7 +4,7 @@
 
 Human Engine — система, которая:
 
-> преобразует тренировочные и recovery-данные в решение о нагрузке
+> преобразует тренировочные и recovery-данные в readiness и downstream decision support
 
 ---
 
@@ -22,6 +22,8 @@ Daily State Layers
 Load Model + Recovery Model
 ↓
 Readiness Engine
+↓
+Probability Layer
 ↓
 Recommendation / Ride Briefing
 ↓
@@ -151,7 +153,7 @@ Human Engine — это не один алгоритм.
 
 Это цепочка:
 
-> данные -> состояние -> решение
+> данные -> состояние -> readiness -> decision
 
 Если система дает неправильный результат, ошибка находится в одном из слоев:
 
@@ -170,9 +172,11 @@ Human Engine — это не один алгоритм.
 
 - Strava ingestion pipeline
 - HealthKit ingestion pipeline
+- HealthKit full-sync orchestration
 - raw data storage
 - normalized health layer
 - recovery daily layer
+- baseline-aware recovery scoring
 - load state v2
 - readiness daily
 - good day probability baseline
