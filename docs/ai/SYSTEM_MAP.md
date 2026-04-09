@@ -4,30 +4,31 @@
 
 Human Engine — система, которая:
 
-> преобразует тренировочные данные в решение о нагрузке
+> преобразует тренировочные и recovery-данные в решение о нагрузке
 
 ---
 
 ## 2. End-to-end flow
+
+```text
 Data Sources
 ↓
-Data Engine
+Ingestion / Raw Storage
 ↓
-Data Storage
+Normalized Data
 ↓
-Normalized / Daily Features
+Daily State Layers
 ↓
 Load Model + Recovery Model
 ↓
 Readiness Engine
 ↓
-Recommendation
+Recommendation / Ride Briefing
 ↓
 Workout Outcome
 ↓
 Feedback
-↓
-Model update
+```
 
 ---
 
@@ -39,23 +40,29 @@ Model update
 
 Включает:
 
-- Strava webhook  
-- ingestion pipeline  
-- raw data storage  
+- Strava ingestion
+- HealthKit ingestion
+- raw data storage
 
 Свойства:
 
-- данные не теряются  
-- данные не искажаются  
+- данные не теряются
+- данные не искажаются
 
 ---
 
-### 3.2 Processing layer
+### 3.2 Normalization and processing layer
 
-Преобразует данные в признаки.
+Преобразует raw payloads в прикладные таблицы и daily aggregates.
 
-- feature extraction  
-- расчет базовых метрик  
+Текущие артефакты:
+
+- `daily_training_load`
+- `health_sleep_night`
+- `health_resting_hr_daily`
+- `health_hrv_sample`
+- `health_weight_measurement`
+- `health_recovery_daily`
 
 ---
 
@@ -63,8 +70,11 @@ Model update
 
 Оценивает состояние человека.
 
-- load model v2
-- recovery model
+Текущие артефакты:
+
+- `load_state_daily_v2`
+- `health_recovery_daily`
+- `readiness_daily`
 - fitness / fast fatigue / slow fatigue
 - readiness score
 - good day probability
@@ -75,19 +85,29 @@ Model update
 
 Формирует вывод системы.
 
-- readiness  
-- recommendation  
-- ride briefing  
+Сейчас частично реализован через readiness outputs:
+
+- readiness
+- probability layer
+- status text
+- explanation payload
+
+Следующий слой:
+
+- recommendation
+- ride briefing
 
 ---
 
 ### 3.5 Feedback loop
 
-Система обучается на результате:
+Система может развиваться на основе результата:
 
-- фактическая тренировка  
-- отклонение от прогноза  
-- корректировка модели  
+- фактическая тренировка
+- отклонение от ожидаемого состояния
+- корректировка модели
+
+Этот слой пока не является основным реализованным контуром.
 
 ---
 
@@ -96,13 +116,16 @@ Model update
 Система должна быть:
 
 ### Deterministic
-- одинаковый вход → одинаковый результат  
+
+- одинаковый вход -> одинаковый результат
 
 ### Reproducible
-- любой расчет можно повторить  
+
+- любой расчет можно повторить
 
 ### Observable
-- можно объяснить результат  
+
+- можно объяснить результат по слоям
 
 ---
 
@@ -110,15 +133,15 @@ Model update
 
 Не входит в основной pipeline:
 
-- LLM  
-- генеративные модели  
-- AI-решения  
+- LLM
+- генеративные модели
+- AI-решения
 
 AI может работать только как:
 
-- слой объяснения  
-- инструмент навигации  
-- developer assistant  
+- слой объяснения
+- инструмент навигации
+- developer assistant
 
 ---
 
@@ -128,35 +151,40 @@ Human Engine — это не один алгоритм.
 
 Это цепочка:
 
-> данные → состояние → решение
+> данные -> состояние -> решение
 
-Если система дает неправильный результат:
+Если система дает неправильный результат, ошибка находится в одном из слоев:
 
-ошибка всегда находится в одном из слоев:
-
-- данные  
-- признаки  
-- модель  
-- логика решения  
+- данные
+- нормализация
+- модель нагрузки
+- модель восстановления
+- readiness logic
+- decision mapping
 
 ---
 
 ## 7. Current vs Future
 
-### Сейчас:
+### Сейчас
 
-- ingestion pipeline  
-- raw data  
-- базовая архитектура  
-
-### Далее:
-
-- normalized and daily feature layer
+- Strava ingestion pipeline
+- HealthKit ingestion pipeline
+- raw data storage
+- normalized health layer
+- recovery daily layer
 - load state v2
-- recovery-aware readiness
-- good day probability
-- prediction  
-- adaptive training  
+- readiness daily
+- good day probability baseline
+
+### Далее
+
+- расширение feature layer
+- readiness / probability calibration
+- recommendation layer
+- ride briefing layer
+- prediction
+- adaptive training
 
 ---
 
@@ -164,9 +192,10 @@ Human Engine — это не один алгоритм.
 
 При развитии системы:
 
-> каждый новый элемент должен вписываться в эту схему
+> каждый новый элемент должен вписываться в схему  
+> `source -> state -> readiness -> decision`
 
 Если не вписывается:
 
-- либо он лишний  
-- либо схема нарушена  
+- либо он лишний
+- либо схема нарушена

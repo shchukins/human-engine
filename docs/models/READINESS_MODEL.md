@@ -2,14 +2,13 @@
 
 ## 1. Purpose
 
-Этот документ описывает модель оценки готовности (readiness)
-в системе Human Engine.
+Этот документ описывает текущую readiness model в Human Engine.
 
 Цель:
 
-- определить, насколько спортсмен готов к нагрузке  
-- обеспечить детерминированное принятие решений  
-- сделать модель прозрачной и объяснимой  
+- определить, насколько спортсмен готов к нагрузке
+- зафиксировать текущую baseline-логику backend
+- сделать модель прозрачной и объяснимой
 
 ---
 
@@ -17,32 +16,32 @@
 
 Модель должна быть:
 
-- deterministic  
-- простой  
-- объяснимой  
-- воспроизводимой  
+- deterministic
+- простой
+- объяснимой
+- воспроизводимой
 
 Нельзя:
 
-- использовать скрытую логику  
-- использовать LLM  
-- усложнять без необходимости  
+- использовать скрытую логику
+- использовать LLM
+- подменять readiness только load-only proxy
 
 ---
 
 ## 3. Inputs
 
-Модель использует следующие метрики:
+Текущая model v2 использует:
 
-- `freshness` из `load_state_daily_v2`  
-- `recovery_score_simple` из `health_recovery_daily`  
-- recent training load  
+- `freshness` из `load_state_daily_v2`
+- `recovery_score_simple` из `health_recovery_daily`
 
-Дополнительно в расширенной версии могут использоваться:
+Важно:
 
-- `sleep_score_simple`
-- `hrv_dev`
-- `rhr_dev`
+- readiness больше не равен freshness
+- recovery contour не заменяет fatigue, а дополняет load contour
+
+Дополнительные сигналы, такие как `sleep_score_simple`, `hrv_dev`, `rhr_dev`, пока не являются отдельными входами readiness formula.
 
 ---
 
@@ -50,202 +49,166 @@
 
 Основная идея:
 
-> readiness определяется не только нагрузкой, а сочетанием load state и recovery state
+> readiness определяется сочетанием load state и recovery state
 
-Базовая формула v2:
+### 4.1 Load contour
 
-```text
-readiness_score_raw =
-    w1 * freshness +
-    w2 * recovery_score_simple
-```
+Load contour формируется в `load_state_daily_v2`:
+
+- `fitness`
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
+- `freshness`
 
 Где:
 
+- `fatigue_total = 0.65 * fatigue_fast + 0.35 * fatigue_slow`
 - `freshness = fitness - fatigue_total`
-- `fatigue_total = fatigue_fast + fatigue_slow`
 
-Расширенная формула v2+:
+### 4.2 Recovery contour
+
+Recovery contour формируется в `health_recovery_daily` из:
+
+- сна
+- HRV
+- resting HR
+- веса
+
+Текущий прикладной выход этого слоя:
+
+- `recovery_score_simple`
+
+### 4.3 Baseline formula v2
+
+Сначала `freshness` нормализуется:
 
 ```text
-readiness_score_raw =
-    w1 * freshness
-  + w2 * recovery_score
-  + w3 * hrv_dev
-  - w4 * rhr_dev
-  + w5 * sleep_score
+freshness_norm = clamp(50 + freshness, 0, 100)
 ```
 
----
+Затем readiness считается так:
 
-## 5. Readiness zones
+```text
+readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
+```
 
-Модель делит состояние на зоны на основе `readiness_score` и/или `good_day_probability`.
+Fallback behavior:
 
-### 5.1 Low readiness
+- если нет recovery score, используется `freshness_norm`
+- если нет load score, используется `recovery_score_simple`
 
-Условие:
+### 4.4 Final outputs
 
-- низкий `readiness_score`
-- низкая `good_day_probability`
+```text
+readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
+good_day_probability = readiness_score / 100
+```
 
-Интерпретация:
-
-- высокая усталость  
-- риск перегрузки  
-
-Рекомендация:
-
-- отдых или легкая тренировка  
+`good_day_probability` пока является baseline probability-like mapping, а не откалиброванной статистической вероятностью.
 
 ---
 
-### 5.2 Moderate readiness
+## 5. Status zones
 
-Условие:
+Текущие статусные зоны backend:
 
-- средний `readiness_score`
-- умеренная `good_day_probability`
+### 5.1 Высокая усталость
 
-Интерпретация:
+- `readiness_score <= 24`
 
-- нормальное состояние  
+### 5.2 Нагрузка
 
-Рекомендация:
+- `25 <= readiness_score <= 44`
 
-- умеренная нагрузка  
+### 5.3 Нормальная готовность
 
----
+- `45 <= readiness_score <= 64`
 
-### 5.3 High readiness
+### 5.4 Хорошая готовность
 
-Условие:
+- `65 <= readiness_score <= 84`
 
-- высокий `readiness_score`
-- высокая `good_day_probability`
+### 5.5 Очень свежий
 
-Интерпретация:
-
-- хорошее восстановление  
-
-Рекомендация:
-
-- интенсивная тренировка  
+- `readiness_score >= 85`
 
 ---
 
-## 6. Adjustments
+## 6. Output
 
-Базовая модель уже включает recovery-контур и может быть расширена:
+Результат текущей модели:
 
----
-
-### 6.1 Recent load spike
-
-Если:
-
-- резкий рост нагрузки за последние 2–3 дня  
-
-→ снижать readiness  
-
----
-
-### 6.2 Consecutive training days
-
-Если:
-
-- несколько дней подряд без отдыха  
-
-→ снижать readiness  
-
----
-
-### 6.3 Recovery gap
-
-Если:
-
-- длительный отдых  
-
-→ повышать readiness  
-
----
-
-### 6.4 Recovery signals
-
-Если:
-
-- sleep ниже baseline
-- HRV ниже baseline
-- resting HR выше baseline
-
-→ снижать readiness даже при приемлемом `freshness`
-
----
-
-## 7. Output
-
-Результат модели:
-
+- `readiness_score_raw`
 - `readiness_score`
 - `good_day_probability`
-- readiness zone
-- вход для тренировочной рекомендации
+- `status_text`
+- `explanation_json`
+
+`readiness_daily` является отдельным storage layer для этих outputs.
 
 ---
 
-## 8. Determinism requirement
+## 7. Explanation payload
 
-При одинаковых входных данных:
+Текущий `explanation_json` хранит:
 
-- результат должен быть одинаковым  
-- не допускается случайность  
+- `freshness`
+- `freshness_norm`
+- `recovery_score_simple`
+- веса формулы
+- строку формулы
+
+Это нужно для explainability и отладки.
 
 ---
 
-## 9. Limitations
+## 8. Limitations
 
 Текущая модель:
 
-- использует простой recovery score как текущий recovery-контур
-- пока не фиксирует окончательную калибровку весов и зон
+- использует простой recovery score как baseline recovery contour
+- пока не использует индивидуальные baseline deviations
+- пока не имеет отдельной probability calibration
 - требует дальнейшей верификации на реальных данных
 
 ---
 
-## 10. Future extensions
+## 9. Planned extensions
 
 Планируется:
 
-- калибровка весов `freshness` и `recovery_score_simple`
+- калибровка весов `freshness_norm` и `recovery_score_simple`
 - явные `sleep_score_simple`, `hrv_dev`, `rhr_dev`
-- уточнение зон и probability thresholds
+- уточнение interpretation layer для `good_day_probability`
+- уточнение decision mapping
 
 Но:
 
-- без потери прозрачности  
+- без потери прозрачности
+- с явным versioning
 
 ---
 
-## 11. Debugging model
+## 10. Debugging model
 
-Если результат кажется неверным:
+Если результат кажется неверным, проверять:
 
-проверять:
-
-1. входные данные  
-2. расчет `load_state_daily_v2`
-3. расчет `health_recovery_daily`
-4. формирование `readiness_score_raw`
-5. примененные правила маппинга в zone / probability
+1. входные данные HealthKit и training load
+2. расчет `health_recovery_daily`
+3. расчет `load_state_daily_v2`
+4. нормализацию `freshness`
+5. формирование `readiness_score_raw`
+6. status mapping и probability mapping
 
 ---
 
-## 12. Design constraint
+## 11. Design constraint
 
 Любое усложнение модели должно:
 
-- улучшать объяснимость  
-- не нарушать deterministic поведение  
-- быть обоснованным  
+- улучшать объяснимость
+- не нарушать deterministic поведение
+- быть отделено от planned layers
 
-Иначе — не добавлять.
+Иначе его не нужно добавлять.

@@ -1,89 +1,90 @@
 # Open Decisions
 
 Этот документ фиксирует архитектурные и продуктовые вопросы,
-которые на данный момент не имеют окончательного решения.
+которые еще не имеют окончательного решения.
 
 Цель:
 
-- сохранить контекст размышлений  
-- избежать потери важных вопросов  
-- поддерживать осознанное развитие системы  
+- сохранить контекст размышлений
+- отделить уже реализованное от еще не решенного
+- поддерживать осознанное развитие системы
 
 ---
 
-## OD-001: Readiness model definition
+## OD-001: Readiness calibration
 
 ### Context
 
-Базовая структура readiness в model v2 уже определена:
+Базовая структура readiness в model v2 уже реализована:
 
 - `LoadState + RecoveryState -> Readiness -> GoodDayProbability`
-- load state использует `fitness`, `fatigue_fast`, `fatigue_slow`, `freshness`
-- recovery state использует sleep / HRV / resting HR aggregates
+- load state использует `fitness`, `fatigue_fast`, `fatigue_slow`, `fatigue_total`, `freshness`
+- recovery state использует sleep / HRV / resting HR / weight aggregates
+- readiness baseline использует формулу `0.6 * freshness_norm + 0.4 * recovery_score_simple`
 
-Но все еще не определены:
+Но все еще не определены окончательно:
 
-- точные веса readiness formula
-- калибровка probability thresholds
-- схема zone mapping
+- калибровка весов
+- калибровка status thresholds
+- калибровка probability interpretation
 
 ---
 
 ### Options
 
-1. Минимальная v2: `freshness + recovery_score_simple`
-2. Расширенная v2+: `freshness + recovery_score + hrv_dev + rhr_dev + sleep_score`
-3. Версионируемый гибрид с explicit calibration
+1. Оставить текущую baseline formula и калибровать пороги
+2. Расширить readiness input через `sleep_score_simple`, `hrv_dev`, `rhr_dev`
+3. Ввести более явное versioning readiness calibration
 
 ---
 
 ### Open questions
 
-- какой минимальный recovery input обязателен
-- как калибровать probability без black-box логики
-- как versioning readiness model отражать в storage
+- как калибровать веса без black-box логики
+- какие thresholds считать стабильными для user-facing layer
+- как versioning readiness model отражать в storage и docs
 
 ---
 
 ### Status
 
-partially resolved  
+partially resolved
 
 ---
 
-## OD-002: Feature layer design
+## OD-002: Feature layer expansion
 
 ### Context
 
-Feature layer пока не реализован.
+Базовый feature / derived layer уже частично реализован:
 
-Нужно решить:
+- `daily_training_load`
+- HealthKit normalized tables
+- `health_recovery_daily`
 
-- где он живет  
-- как хранится  
-- как пересчитывается  
+Открытым остается вопрос расширения feature layer и его границ.
 
 ---
 
 ### Options
 
-1. SQL-based (materialized views)
+1. SQL-based aggregates
 2. Python pipeline
-3. гибрид  
+3. Гибрид
 
 ---
 
 ### Open questions
 
-- как обеспечить воспроизводимость  
-- как делать перерасчет  
-- как хранить версии  
+- где хранить дополнительные derived features
+- как делать массовый перерасчет
+- как versioning расширенных features отражать в storage
 
 ---
 
 ### Status
 
-open  
+partially resolved
 
 ---
 
@@ -93,68 +94,70 @@ open
 
 Система предполагает прогноз:
 
-- как тренировка повлияет на состояние  
+- как тренировка повлияет на состояние
 
-Но пока нет модели.
+Но предиктивная модель пока не реализована.
 
 ---
 
 ### Options
 
-1. Простая эвристика  
-2. Физиологическая модель  
-3. ML-подход  
+1. Простая эвристика
+2. Физиологическая модель
+3. ML-подход
 
 ---
 
 ### Open questions
 
-- нужен ли ML вообще  
-- как валидировать прогноз  
-- какие метрики использовать  
+- нужен ли ML вообще
+- как валидировать прогноз
+- какие метрики использовать
 
 ---
 
 ### Status
 
-open  
+open
 
 ---
 
-## OD-004: Data sources expansion
+## OD-004: Multi-source data strategy
 
 ### Context
 
-Сейчас используется Strava.
+Сейчас уже используются:
 
-В будущем возможны:
+- Strava
+- HealthKit
 
-- Garmin  
-- HealthKit  
-- HRV  
-- сон  
+Следующий уровень сложности:
+
+- расширение источников
+- source priority
+- conflict resolution
 
 ---
 
 ### Options
 
-1. Strava-only
-2. Strava + HealthKit recovery layer
-3. Multi-source aggregation with explicit source priority
+1. Strava + HealthKit как основная схема
+2. Добавление новых источников с явным source priority
+3. Multi-source aggregation с правилами консолидации
 
 ---
 
 ### Open questions
 
-- как синхронизировать источники  
-- что считать источником истины  
-- как решать конфликты данных  
+- что считать источником истины для пересекающихся метрик
+- как синхронизировать даты и timezone-sensitive данные
+- как решать конфликты при расширении источников
 
 ---
 
 ### Status
 
-open  
+partially resolved
 
 ---
 
@@ -162,35 +165,35 @@ open
 
 ### Context
 
-Ride briefing — ключевой output системы.
+Ride briefing — важный output системы.
 
-Но не определено:
+Базовая readiness layer уже реализована, но не зафиксировано:
 
-- формат  
-- уровень детализации  
-- структура  
+- окончательный формат user-facing briefing
+- уровень детализации
+- mapping from readiness to recommendation
 
 ---
 
 ### Options
 
-1. Короткий текст  
-2. Структурированный блок  
-3. Полноценный план тренировки  
+1. Короткий structured block
+2. Rule-based briefing with explanation templates
+3. Более подробный plan layer поверх deterministic core
 
 ---
 
 ### Open questions
 
-- насколько детализирован должен быть вывод  
-- нужен ли адаптивный формат  
-- как сохранять детерминированность  
+- насколько детализирован должен быть вывод
+- какие ограничения выводить первыми
+- как не потерять детерминированность
 
 ---
 
 ### Status
 
-open  
+open
 
 ---
 
@@ -198,29 +201,29 @@ open
 
 ### Context
 
-Визуализация пока отсутствует.
+Visualization layer пока не является основной частью реализованного core.
 
 ---
 
 ### Options
 
-1. Web dashboard  
-2. Mobile-first (iOS)  
-3. Минималистичный интерфейс  
+1. Web dashboard
+2. Mobile-first
+3. Минималистичный readiness-first интерфейс
 
 ---
 
 ### Open questions
 
-- что показывать в первую очередь  
-- какие метрики критичны  
-- как не превратить систему в "dashboard без смысла"  
+- что показывать в первую очередь
+- какие метрики критичны
+- как не превратить систему в dashboard без решения
 
 ---
 
 ### Status
 
-open  
+open
 
 ---
 
@@ -228,33 +231,40 @@ open
 
 ### Context
 
-Появятся производные данные:
+Уже существуют derived данные:
 
-- features  
-- метрики  
-- readiness  
+- normalized health tables
+- `health_recovery_daily`
+- `load_state_daily_v2`
+- `readiness_daily`
+
+Но еще не зафиксирована общая стратегия:
+
+- что хранить постоянно
+- что пересчитывать
+- как versioning делать единообразно
 
 ---
 
 ### Options
 
-1. хранить все  
-2. пересчитывать на лету  
-3. гибрид  
+1. Хранить все derived layers
+2. Пересчитывать часть state on demand
+3. Гибрид
 
 ---
 
 ### Open questions
 
-- баланс storage vs compute  
-- как обеспечивать консистентность  
-- как делать versioning  
+- баланс storage vs compute
+- как обеспечивать консистентность между слоями
+- как оформлять versioning derived tables
 
 ---
 
 ### Status
 
-open  
+open
 
 ---
 
@@ -262,47 +272,43 @@ open
 
 ### Context
 
-AI временно удален из core.
+AI остается вне deterministic core.
 
-В будущем возможен возврат.
+Возможный будущий use-case:
+
+- explainability
+- documentation
+- structured summaries
 
 ---
 
 ### Options
 
-1. только RAG  
-2. AI как explainability слой  
-3. ограниченные AI endpoints  
+1. Только RAG
+2. AI как explainability слой
+3. Ограниченные AI endpoints вне core
 
 ---
 
 ### Open questions
 
-- где проходит граница допустимого  
-- как не нарушить deterministic core  
-- какие use-cases действительно полезны  
+- где проходит граница допустимого
+- как не нарушить deterministic core
+- какие use-cases действительно полезны
 
 ---
 
 ### Status
 
-deferred  
-
----
-
-## How to use this document
-
-- добавлять новые вопросы по мере появления  
-- не удалять старые, а переводить в ARCHITECTURE_DECISIONS  
-- регулярно пересматривать  
+deferred
 
 ---
 
 ## Lifecycle
 
-open → decision → ADR  
+`open -> decision -> ADR`
 
 После принятия решения:
 
-- перенос в ARCHITECTURE_DECISIONS.md  
-- обновление архитектуры при необходимости  
+- перенос в `ARCHITECTURE_DECISIONS.md`
+- обновление архитектуры и data/model docs

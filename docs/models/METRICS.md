@@ -2,13 +2,13 @@
 
 ## 1. Purpose
 
-Этот документ описывает базовые метрики Human Engine.
+Этот документ описывает текущие базовые метрики Human Engine.
 
 Цель:
 
-- зафиксировать формулы  
-- обеспечить воспроизводимость  
-- сделать логику прозрачной  
+- зафиксировать формулы
+- обеспечить воспроизводимость
+- синхронизировать документацию с текущим backend baseline
 
 ---
 
@@ -16,22 +16,18 @@
 
 Все метрики должны быть:
 
-- deterministic  
-- объяснимыми  
-- воспроизводимыми  
+- deterministic
+- объяснимыми
+- воспроизводимыми
 
 Нельзя:
 
-- использовать скрытые формулы  
-- менять определения без фиксации  
+- использовать скрытые формулы
+- менять определения без фиксации
 
 ---
 
 ## 3. Activity-level metrics
-
-Метрики, рассчитываемые для одной тренировки.
-
----
 
 ### 3.1 Duration
 
@@ -47,27 +43,23 @@
 
 ### 3.3 Normalized Power (NP)
 
-Оценка "эффективной" мощности с учетом вариативности нагрузки.
+Оценка физиологической стоимости переменной нагрузки.
 
 ---
 
 ### 3.4 Intensity Factor (IF)
 
-IF = NP / FTP
+`IF = NP / FTP`
 
 ---
 
 ### 3.5 Training Stress Score (TSS)
 
-TSS = (Duration × NP × IF) / (FTP × 3600) × 100
+`TSS = (Duration × NP × IF) / (FTP × 3600) × 100`
 
 ---
 
 ## 4. Daily metrics
-
-Агрегируются на уровне дня.
-
----
 
 ### 4.1 Daily Training Load
 
@@ -75,15 +67,20 @@ TSS = (Duration × NP × IF) / (FTP × 3600) × 100
 
 ---
 
-### 4.2 Nonlinear Load Input
+### 4.2 Load Input
 
-Для model v2 дневная нагрузка подается в load model через нелинейную функцию.
+Для `load_state_daily_v2` дневная нагрузка подается через поле `load_input_nonlinear`.
 
-Формула:
+Текущее состояние backend:
+
+- функция называется `load_input_nonlinear`
+- фактическая baseline-реализация использует линейный input:
 
 ```text
-load_input = A * (1 - exp(-B * TSS))
+load_input_nonlinear = TSS
 ```
+
+Нелинейная трансформация остается возможным следующим шагом, но сейчас в коде не применяется.
 
 ---
 
@@ -91,32 +88,40 @@ load_input = A * (1 - exp(-B * TSS))
 
 Долгосрочная адаптационная компонента.
 
-Экспоненциальное скользящее среднее:
+Экспоненциальное обновление:
 
-- `tau_fitness ≈ 40`
+```text
+fitness[d] = fitness[d-1] + (load_input[d] - fitness[d-1]) / 40
+```
 
 ---
 
 ### 4.4 Fatigue Fast
 
-Короткая компонента усталости.
+Быстрая компонента усталости.
 
-- `tau_fatigue_fast ≈ 2`
+```text
+fatigue_fast[d] = fatigue_fast[d-1] + (load_input[d] - fatigue_fast[d-1]) / 4
+```
 
 ---
 
 ### 4.5 Fatigue Slow
 
-Средняя по длительности компонента усталости.
+Более медленная компонента усталости.
 
-- `tau_fatigue_slow ≈ 7`
+```text
+fatigue_slow[d] = fatigue_slow[d-1] + (load_input[d] - fatigue_slow[d-1]) / 9
+```
 
 ---
 
 ### 4.6 Fatigue Total
 
+В текущей model v2 это не сумма, а взвешенная смесь:
+
 ```text
-fatigue_total = fatigue_fast + fatigue_slow
+fatigue_total = 0.65 * fatigue_fast + 0.35 * fatigue_slow
 ```
 
 ---
@@ -129,74 +134,116 @@ freshness = fitness - fatigue_total
 
 ---
 
-## 5. Derived metrics
+### 4.8 Calendar continuity
+
+`load_state_daily_v2` считается по непрерывной календарной оси.
+
+Это означает:
+
+- в модели присутствуют и тренировочные, и нетренировочные дни
+- в дни без тренировки используется `tss = 0`
 
 ---
 
-### 5.1 Fatigue
+## 5. Recovery metrics
 
-В model v2 представлена как:
+### 5.1 Recovery Daily Inputs
 
-- `fatigue_fast`
-- `fatigue_slow`
-- `fatigue_total`
+Текущий recovery layer использует:
 
----
-
-### 5.2 Fitness
-
-`fitness` остается отдельной сглаженной компонентой load state.
+- `sleep_minutes`
+- `resting_hr_bpm`
+- `hrv_daily_median_ms`
+- `weight_kg`
 
 ---
 
-### 5.3 Form
+### 5.2 Recovery Score Simple
 
-В качестве основной прикладной метрики model v2 использует `freshness`.
+`recovery_score_simple` — baseline heuristic score из `health_recovery_daily`.
 
-Legacy-метрики `CTL / ATL / TSB` могут использоваться только как reference baseline или для обратной совместимости.
+Свойства:
+
+- диапазон `0..100`
+- считается из сна, resting HR и HRV
+- пока не использует индивидуальные baseline deviations
 
 ---
 
-## 6. Readiness (model v2)
+## 6. Readiness (model v2 baseline)
 
 Readiness — ключевая метрика системы.
 
-В model v2 readiness:
+В current backend readiness:
 
 - не равна `freshness`
-- рассчитывается из `load_state + recovery_state`
-- может сопровождаться `good_day_probability`
+- считается из `load_state + recovery_state`
+- хранится в `readiness_daily`
 
-Базовая формула:
+### 6.1 Freshness normalization
 
-```text
-readiness_score_raw =
-    w1 * freshness +
-    w2 * recovery_score_simple
-```
-
-Probability layer:
+Перед объединением с recovery-контуром `freshness` переводится в грубую шкалу `0..100`:
 
 ```text
-good_day_probability = sigmoid(readiness_score_raw)
+freshness_norm = clamp(50 + freshness, 0, 100)
 ```
+
+### 6.2 Baseline formula
+
+```text
+readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
+```
+
+Fallback behavior:
+
+- если нет recovery, readiness опирается на `freshness_norm`
+- если нет load, readiness опирается на `recovery_score_simple`
+
+### 6.3 Readiness score
+
+```text
+readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
+```
+
+### 6.4 Good Day Probability
+
+Текущий probability layer в backend:
+
+```text
+good_day_probability = readiness_score / 100
+```
+
+Это baseline-мэппинг, а не откалиброванная вероятностная модель.
 
 ---
 
-## 7. Constraints
+## 7. Status mapping
+
+Текущий `status_text` определяется по `readiness_score`:
+
+- `0..24` -> `Высокая усталость`
+- `25..44` -> `Нагрузка`
+- `45..64` -> `Нормальная готовность`
+- `65..84` -> `Хорошая готовность`
+- `85..100` -> `Очень свежий`
+
+---
+
+## 8. Constraints
 
 Метрики должны:
 
-- быть пересчитываемыми  
-- использовать raw данные  
-- не зависеть от AI  
+- быть пересчитываемыми
+- использовать raw и normalized upstream data
+- не зависеть от AI
 
 ---
 
-## 8. Future extensions
+## 9. Future extensions
 
 Планируется добавить:
 
+- нелинейную трансформацию load input
 - `sleep_score_simple`
 - `hrv_dev`
 - `rhr_dev`
@@ -204,13 +251,14 @@ good_day_probability = sigmoid(readiness_score_raw)
 
 Но:
 
-- только без потери прозрачности и versioning
+- только с явным versioning
+- без потери прозрачности
 
 ---
 
-## 9. Versioning
+## 10. Versioning
 
 При изменении формул:
 
-- фиксировать версию  
-- не менять исторические расчеты  
+- фиксировать версию
+- не менять исторические расчеты молча
