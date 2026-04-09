@@ -1,38 +1,46 @@
-# Human Engine
+# Human Engine Backend
 
-Human Engine — экспериментальная платформа анализа тренировок.
+Human Engine backend — FastAPI-сервис и orchestration слой для ingestion, нормализации данных и расчета daily state.
 
-Проект предназначен для загрузки, хранения и анализа тренировочных данных
-из Strava с использованием собственной инфраструктуры.
+## Назначение
 
-## Принципы проекта
+Backend отвечает за:
 
-Human Engine создается как инженерный эксперимент по построению
-системы анализа тренировочных данных на собственной инфраструктуре.
+- прием данных из внешних источников
+- сохранение raw payloads
+- нормализацию данных
+- расчет derived daily state
+- предоставление API для пересчета и интеграции
 
-Основные принципы проекта:
+## Принципы
 
-• простые и понятные модели вместо сложных ML без необходимости  
-• прозрачные вычисления тренировочных метрик  
-• минимальная зависимость от внешних сервисов  
-• self-hosted инфраструктура  
-• воспроизводимость расчетов  
-• простая и наблюдаемая архитектура
+- deterministic logic first
+- прозрачные вычисления
+- воспроизводимость через raw storage
+- минимальная скрытая магия
+- AI не участвует в core-расчетах
 
-## Архитектура
+## Текущая архитектура
 
-Текущая архитектура системы:
+Источники:
 
-Strava
-↓
-Webhook
-↓
-FastAPI backend
-↓
-PostgreSQL
+- Strava
+- HealthKit
+
+Базовый поток:
+
+```text
+Strava -> raw ingest / daily load ------------------+
+                                                    |
+HealthKit -> raw ingest -> normalized -> recovery --+-> readiness
+                                                    |
+                                                    v
+                                         load_state_daily_v2
+```
 
 Деплой:
 
+```text
 Internet
 ↓
 VPS (Caddy reverse proxy)
@@ -42,88 +50,168 @@ Tailscale
 Home server
 ↓
 FastAPI + PostgreSQL
+```
 
-## Pipeline загрузки данных
+## Реализованные backend layers
 
-Система уже реализует первый pipeline загрузки тренировок из Strava.
+### 1. Strava ingestion
 
-Текущий поток данных:
+- webhook endpoint
+- raw storage
+- ingest jobs
+- загрузка активностей
+- формирование `daily_training_load`
 
-Strava  
-↓  
-Webhook event  
-↓  
-/webhook/strava  
-↓  
-strava_webhook_event  
-↓  
-strava_activity_ingest_job  
-↓  
-загрузка активности из Strava API  
-↓  
-strava_activity_raw
+### 2. HealthKit ingestion
 
-На текущий момент система:
-- принимает webhook события Strava  
-- сохраняет события в базе данных  
-- создает jobs для загрузки активности  
-- загружает сырые данные активности
+Реализованы:
 
-В дальнейшем ingestion слой будет выделен в отдельный worker сервис.
+- raw ingestion endpoint
+- orchestration endpoint `POST /api/v1/healthkit/full-sync/{user_id}`
+- raw table `healthkit_ingest_raw`
+- pipeline raw ingest -> normalized -> recovery -> readiness
+
+### 3. Health normalized layer
+
+Реализованы таблицы:
+
+- `health_sleep_night`
+- `health_resting_hr_daily`
+- `health_hrv_sample`
+- `health_weight_measurement`
+
+Назначение:
+
+- привести payload HealthKit к детерминированной и пересчитываемой форме
+- отделить raw payload от прикладных расчетов
+
+### 4. Recovery layer
+
+Реализована таблица:
+
+- `health_recovery_daily`
+
+Текущий baseline включает:
+
+- sleep metrics
+- resting HR
+- HRV daily median
+- latest known weight
+- `recovery_score_simple`
+
+### 5. Load model v2
+
+Реализована таблица:
+
+- `load_state_daily_v2`
+
+Текущий расчет:
+
+- идет по непрерывной календарной оси
+- использует `tss = 0` в дни без тренировок
+- использует текущий линейный input по TSS
+- хранит `fitness`
+- хранит `fatigue_fast`
+- хранит `fatigue_slow`
+- хранит `fatigue_total` как взвешенную смесь fast/slow fatigue
+- хранит `freshness = fitness - fatigue_total`
+
+### 6. Readiness layer
+
+Реализована таблица:
+
+- `readiness_daily`
+
+Текущий readiness baseline:
+
+- объединяет load contour и recovery contour
+- использует `freshness` из `load_state_daily_v2`
+- использует `recovery_score_simple` из `health_recovery_daily`
+- считает `readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple`
+- сохраняет `readiness_score`
+- сохраняет `good_day_probability`
+- сохраняет `status_text`
+- сохраняет `explanation_json`
+
+## HealthKit full sync pipeline
+
+Текущий orchestration pipeline:
+
+```text
+POST /api/v1/healthkit/full-sync/{user_id}
+    -> save raw payload
+    -> process latest raw payload into normalized tables
+    -> collect affected dates
+    -> recompute health_recovery_daily for affected dates
+    -> recompute readiness_daily for affected dates
+```
+
+Важно:
+
+- recovery пересчитывается поверх normalized health tables
+- readiness пересчитывается как отдельный слой
+- readiness больше не является просто полем внутри load state
 
 ## Технологический стек
 
-Backend  
-FastAPI  
-PostgreSQL  
-Python
+Backend:
 
-Infrastructure  
-Docker  
-Docker Compose  
-Caddy  
-Tailscale
+- FastAPI
+- Python
+- PostgreSQL
 
-External integrations  
-Strava API  
-Strava Webhooks
+Infrastructure:
 
+- Docker
+- Docker Compose
+- Caddy
+- Tailscale
+
+External integrations:
+
+- Strava API
+- Strava Webhooks
+- Apple HealthKit via iOS sync client
 
 ## Структура проекта
 
-backend/  
-Основной код backend-сервиса на FastAPI и документация проекта.
+`backend/`  
+Основной код backend-сервиса на FastAPI.
 
-backend/infra/  
-Локальная инфраструктура для разработки (docker-compose для PostgreSQL).
+`backend/infra/`  
+Локальная инфраструктура для разработки.
 
-db-init/  
+`db-init/`  
 SQL для инициализации базы данных.
 
-compose.yaml  
-docker compose стек для домашнего сервера.
-
-sql_*.sql  
-Черновые SQL-запросы для ingestion и аналитических метрик.
-
+`compose.yaml`  
+docker compose стек для сервера.
 
 ## Roadmap
 
-Ближайшие этапы развития проекта:
+Уже реализовано:
 
-- загрузка streams данных из Strava  
-- нормализация recovery-данных  
-- расчет тренировочных метрик и load state v2  
-- readiness model v2 и probability layer  
-- API для аналитики  
-- мобильное приложение (iOS)
+- HealthKit ingestion и normalization
+- recovery daily aggregation
+- load model v2 baseline
+- readiness baseline
+- good day probability baseline
+
+Следующие шаги:
+
+- activity streams ingestion
+- расширение feature extraction
+- калибровка readiness / probability
+- API и UI для user-facing insights
+- iOS integration polish
 
 ## AI Context
 
 See:
-- docs/ai/PRODUCT_CONTEXT.md
-- docs/ai/CURRENT_PRIORITIES.md
-- AGENTS.md
+
+- `docs/ai/PRODUCT_CONTEXT.md`
+- `docs/ai/CURRENT_PRIORITIES.md`
+- `AGENTS.md`
 
 ## Run locally
 
@@ -135,47 +223,46 @@ See:
 
 ### 1. Clone repository
 
-git clone https://github.com/shchukins/human-engine.git  
+```bash
+git clone https://github.com/shchukins/human-engine.git
 cd human-engine/backend
+```
 
 ### 2. Create environment file
 
-Copy example configuration:
-
+```bash
 cp infra/.env.example infra/.env
-
-Edit values if necessary.
+```
 
 ### 3. Start PostgreSQL
 
-cd infra  
+```bash
+cd infra
 docker compose up -d
+```
 
-PostgreSQL will start on:
+PostgreSQL:
 
-localhost:5433
-
-Database:
-
-human_engine
+- host: `localhost`
+- port: `5433`
+- database: `human_engine`
 
 ### 4. Install backend dependencies
 
+```bash
 cd ..
-
-python -m venv .venv  
+python -m venv .venv
 source .venv/bin/activate
-
 pip install -r requirements.txt
+```
 
 ### 5. Run backend
 
+```bash
 uvicorn backend.app:app --reload
+```
 
-API will be available at:
+API:
 
-http://localhost:8000
-
-Health check:
-
-http://localhost:8000/healthz
+- `http://localhost:8000`
+- health check: `http://localhost:8000/healthz`

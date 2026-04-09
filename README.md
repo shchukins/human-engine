@@ -2,28 +2,29 @@
 
 > A system for analyzing training load, estimating athlete state, and supporting training decisions.
 >
-> `signal -> load/recovery state -> readiness -> decision`
+> `signal -> load state + recovery state -> readiness -> decision`
 
 ## Core Idea
 
 **The right training on the right day.**
 
-Human Engine is not just a training log and not an AI coach.  
+Human Engine is not a training log and not an AI coach.  
 It is an engineering system designed to support decisions through explicit, reproducible, and deterministic logic.
 
 ## What Human Engine Does
 
-- Collects training data
-- Estimates load and recovery state
+- Collects training and recovery data
+- Stores raw source payloads for reproducibility
+- Builds daily load and recovery state
 - Calculates readiness and good-day probability
 - Supports training load decisions
 
 ## What the System Is
 
 - A training data processing system
-- A load adaptation model
+- A physiology-driven load and recovery model
 - A readiness evaluation engine
-- A foundation for training decisions
+- A deterministic foundation for training decisions
 
 ## What the System Is Not
 
@@ -36,15 +37,18 @@ See: [docs/ai/PRODUCT_CONTEXT.md](docs/ai/PRODUCT_CONTEXT.md)
 
 ## Current State
 
-The system is currently in a stabilization phase. The current setup includes:
+The current backend already includes:
 
-- Backend built with FastAPI
+- FastAPI backend
 - PostgreSQL
 - Strava ingestion pipeline
-- Health recovery ingestion and normalization
-- Raw data storage
-- Daily load and recovery feature layer
-- Model V2 architecture for readiness
+- HealthKit raw ingestion and full-sync orchestration
+- Raw data storage for Strava and HealthKit payloads
+- HealthKit normalized tables
+- Recovery layer via `health_recovery_daily`
+- Load model v2 via `load_state_daily_v2`
+- Readiness layer via `readiness_daily`
+- Probability layer via `good_day_probability`
 - Docker deployment
 - Public API exposed through a VPS
 
@@ -53,12 +57,24 @@ The system is currently in a stabilization phase. The current setup includes:
 - Deterministic core
 - Transparent logic
 - Reproducible results
+- Stabilization of model v2 and downstream decision outputs
 
 See: [docs/ai/CURRENT_PRIORITIES.md](docs/ai/CURRENT_PRIORITIES.md)
 
 ## System Overview
 
 ### Data Flow
+
+```text
+Strava ---------------------------> daily_training_load ----------+
+                                                                 |
+HealthKit -> raw ingest -> normalized health tables -> recovery -+-> readiness
+                                                                 |
+                                                                 v
+                                                     load_state_daily_v2
+```
+
+### Current End-to-End Pipeline
 
 ```text
 Strava + HealthKit
@@ -70,13 +86,13 @@ Strava + HealthKit
    PostgreSQL
         |
         v
-Normalized / Daily Features
+Raw / Normalized / Daily State
         |
         v
-Model V2
+LoadState + RecoveryState
         |
         v
-Readiness / Insights
+Readiness + GoodDayProbability
 ```
 
 ### Infrastructure
@@ -101,8 +117,9 @@ Backend + DB
 
 - Simplicity over complexity
 - Deterministic logic over AI
-- Calculations should remain transparent
-- Data and outputs should remain reproducible
+- Calculations remain transparent
+- Data and outputs remain reproducible
+- Load and recovery remain separate physiological contours
 - AI is an auxiliary layer, not the product core
 
 ## Repository Structure
@@ -112,7 +129,6 @@ backend/        main service
 backend/infra/  local infrastructure
 db-init/        database initialization
 compose.yaml    deployment
-sql_*.sql       analytics and ingestion scripts
 docs/           system documentation
 ```
 
@@ -132,19 +148,35 @@ docs/           system documentation
 - [docs/ai/GLOSSARY.md](docs/ai/GLOSSARY.md)
 - [AGENTS.md](AGENTS.md)
 
+## Current Model V2 Baseline
+
+- Load contour: `daily_training_load -> load_state_daily_v2`
+- Recovery contour: HealthKit normalized tables -> `health_recovery_daily`
+- Readiness contour: `load_state_daily_v2 + health_recovery_daily -> readiness_daily`
+- `freshness = fitness - fatigue_total`
+- `fatigue_total` is a weighted mixture of `fatigue_fast` and `fatigue_slow`
+- Readiness is not equal to freshness
+- `good_day_probability` is stored as a separate probability-like output
+
 ## Short Roadmap
 
-- Streams ingestion
-- Recovery data normalization
-- Load model v2: nonlinear load, fitness, fast/slow fatigue
-- Readiness model v2
-- Good day probability
-- Prediction engine
-- iOS client
+Already implemented:
 
-## Documentation
+- HealthKit ingestion and normalization
+- Recovery daily aggregation
+- Load model v2
+- Readiness model v2 baseline
+- Good day probability baseline
 
-Repository knowledge is organized as follows:
+Next:
+
+- activity streams ingestion
+- feature extraction expansion
+- readiness / probability calibration
+- prediction engine
+- iOS client integration polish
+
+## Documentation Map
 
 - `docs/ai/` — AI context and system language
 - `docs/architecture/` — architecture and decisions
@@ -155,4 +187,4 @@ Repository knowledge is organized as follows:
 
 ## Status
 
-Experimental engineering project with a strong focus on a deterministic product core.
+Experimental engineering project with a deterministic product core and an implemented model v2 baseline in backend.

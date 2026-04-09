@@ -2,15 +2,15 @@
 
 ## 1. Purpose
 
-Этот документ описывает, как Human Engine формирует ride briefing.
+Этот документ описывает, как Human Engine должен формировать ride briefing поверх текущей readiness layer.
 
 Ride briefing — это пользовательский вывод системы перед тренировкой.
 
 Цель:
 
-- перевести состояние readiness в понятную рекомендацию
-- сделать вывод стабильным и детерминированным
-- обеспечить прозрачную связь между метриками и рекомендацией
+- перевести readiness state в понятную рекомендацию
+- сохранить детерминированность
+- опираться на уже реализованные backend layers
 
 ---
 
@@ -27,45 +27,52 @@ Ride briefing должен быть:
 
 - генерировать briefing свободным LLM-текстом
 - использовать скрытую логику
-- давать рекомендации, которые нельзя объяснить через входные метрики
+- выдавать рекомендации, которые нельзя объяснить через readiness inputs
 
 ---
 
-## 3. Inputs
+## 3. Current backend basis
 
-Ride briefing строится на основе:
+На текущем этапе ride briefing должен опираться на уже реализованные слои:
 
-- readiness zone
-- readiness score
-- good_day_probability
-- freshness
-- recovery signals
-- recent training load
-- consecutive training days
-
-Минимально достаточный вход для MVP:
-
-- `readiness_daily`
+- `health_recovery_daily`
 - `load_state_daily_v2`
-- recovery summary из `health_recovery_daily`
+- `readiness_daily`
+
+Это важно, потому что:
+
+- readiness больше не равен freshness
+- briefing должен учитывать двухконтурную модель `load + recovery`
+- вероятность хорошего тренировочного дня уже выделена в отдельный слой
 
 ---
 
-## 4. Output structure
+## 4. Inputs
+
+Практический вход для ride briefing:
+
+- `readiness_score`
+- `good_day_probability`
+- `status_text`
+- `freshness`
+- `recovery_score_simple`
+- `explanation_json`
+
+Дополнительные rule-based inputs могут использоваться позже, но их нужно отделять от уже реализованного backend baseline.
+
+---
+
+## 5. Output structure
 
 Ride briefing должен содержать:
 
-### 4.1 Readiness status
+### 5.1 Readiness status
 
-Краткий статус состояния:
-
-- low readiness
-- moderate readiness
-- high readiness
+Краткий статус состояния, основанный на `status_text`.
 
 ---
 
-### 4.2 Load recommendation
+### 5.2 Load recommendation
 
 Рекомендация по уровню нагрузки:
 
@@ -76,67 +83,48 @@ Ride briefing должен содержать:
 
 ---
 
-### 4.3 Short explanation
+### 5.3 Short explanation
 
-Краткое объяснение причины рекомендации.
+Краткое объяснение, связывающее вывод с двумя контурами:
 
-Примеры:
+- load contour
+- recovery contour
 
-- высокая накопленная усталость при слабом recovery signal
-- сбалансированное состояние load и recovery
-- хорошее восстановление после снижения нагрузки
+Примеры формулировок:
+
+- высокая усталость по load contour при слабом recovery signal
+- нормальная готовность: load и recovery не конфликтуют
+- хорошая готовность: recovery поддерживает благоприятный load state
 
 ---
 
-### 4.4 Optional constraints
+### 5.4 Optional constraints
 
 Если нужно, briefing может содержать ограничения:
 
 - избегать высокой интенсивности
 - ограничить длительность
-- не выполнять вторую тяжелую тренировку подряд
+- не делать второй тяжелый день подряд
+
+Эти ограничения должны появляться только как явные rule-based additions.
 
 ---
 
-## 5. Mapping rules
+## 6. Mapping rules
 
-### 5.1 Low readiness
+Текущее требование к mapping:
 
-Если readiness = low:
+- опираться на `readiness_score` и `good_day_probability`
+- не сводить решение только к `freshness`
+- сохранять объяснимую связь с recovery layer
 
-- recommendation = rest или easy
-- explanation = сочетание freshness и recovery указывает на низкую готовность
+Пример минимального baseline mapping:
 
----
+- низкий readiness -> `rest` или `easy`
+- средний readiness -> `moderate`
+- высокий readiness -> `hard`
 
-### 5.2 Moderate readiness
-
-Если readiness = moderate:
-
-- recommendation = moderate
-- explanation = load state и recovery state допускают обычную нагрузку
-
----
-
-### 5.3 High readiness
-
-Если readiness = high:
-
-- recommendation = hard или key workout
-- explanation = load state стабилен, recovery поддерживает высокую готовность
-
----
-
-## 6. Rule-based adjustments
-
-Итоговая рекомендация может быть понижена, если:
-
-- был резкий всплеск нагрузки
-- несколько дней подряд были тренировки
-- recovery signals ухудшились
-- наблюдается накопление `fatigue_total`
-
-Итоговая рекомендация может быть повышена только в пределах заранее определенных правил.
+Точный mapping еще требует продуктовой фиксации.
 
 ---
 
@@ -146,12 +134,11 @@ Ride briefing должен содержать:
 
 Пример структуры:
 
-- Status: Moderate readiness
-- Recommendation: Moderate load
-- Reason: Balanced load state with adequate recovery signal
+- Status: `Нормальная готовность`
+- Recommendation: `Moderate load`
+- Reason: `Load contour stable, recovery score supports normal training`
 
-Для пользовательского интерфейса могут существовать разные представления,
-но логическая структура должна оставаться одинаковой.
+Для UI могут существовать разные представления, но логическая структура должна оставаться одинаковой.
 
 ---
 
@@ -161,11 +148,11 @@ Ride briefing должен содержать:
 
 Это означает:
 
-- одинаковая категория readiness
-- одинаковая рекомендация
+- одинаковый статус
+- одинаковая категория нагрузки
 - одинаковое объяснение по шаблону
 
-Допускается только шаблонная вариативность, если она не меняет смысл и управляется явными правилами.
+Допускается только шаблонная вариативность без изменения логики.
 
 ---
 
@@ -174,11 +161,9 @@ Ride briefing должен содержать:
 На текущем этапе ride briefing не включает:
 
 - свободный coaching text
-- психологическую мотивацию
 - разговорный AI-стиль
-- персонализированные длинные советы
-
-Это может быть отдельным дополнительным слоем позже, но не частью core логики.
+- скрытые эвристики вне readiness layer
+- длинные персонализированные советы
 
 ---
 
@@ -191,7 +176,7 @@ Ride briefing должен содержать:
 - ограничения по зонам мощности или пульса
 - дополнительный explainability layer
 
-Но только после стабилизации базовой модели.
+Но только после фиксации decision mapping поверх текущего readiness baseline.
 
 ---
 
@@ -199,19 +184,19 @@ Ride briefing должен содержать:
 
 Если ride briefing кажется неверным, проверять:
 
-1. readiness inputs
-2. readiness zone
-3. applied adjustments
-4. final mapping rule
+1. `health_recovery_daily`
+2. `load_state_daily_v2`
+3. `readiness_daily`
+4. mapping rule from readiness to recommendation
 
 ---
 
 ## 12. Design constraint
 
-Ride briefing является частью deterministic core.
+Ride briefing должен оставаться частью deterministic decision layer.
 
 Любое изменение должно:
 
 - сохранять объяснимость
 - сохранять воспроизводимость
-- не превращать вывод в black box
+- опираться на уже реализованные backend layers

@@ -2,22 +2,19 @@
 
 ## Контекст
 
-Текущая модель (V1) основана на load-only логике:
+Model v2 уже реализована в backend как baseline-архитектура.
 
-TSS → fitness / fatigue → freshness → readiness
+Переход выполнен от load-only readiness к двухконтурной схеме:
 
-На практике выявлены ограничения:
+```text
+LoadState + RecoveryState -> Readiness -> GoodDayProbability
+```
 
-- readiness слишком инертен
-- отсутствует учет восстановления
-- модель плохо отражает реальные ощущения после сна / recovery
-- используется только один канал fatigue
+Это означает:
 
-## Цель Model V2
-
-Перейти к двухконтурной модели:
-
-LoadState + RecoveryState → Readiness → GoodDayProbability
+- readiness больше не равен freshness
+- recovery является отдельным контуром
+- readiness хранится как отдельный слой `readiness_daily`
 
 ---
 
@@ -26,73 +23,89 @@ LoadState + RecoveryState → Readiness → GoodDayProbability
 ## 1.1 Load и Recovery — независимые контуры
 
 Load:
+
 - отражает тренировочную нагрузку
-- формируется из TSS / NP
+- формируется из `daily_training_load`
+- материализуется в `load_state_daily_v2`
 
 Recovery:
-- отражает восстановление организма
-- формируется из:
-  - sleep
-  - HRV
-  - resting HR
 
-❗ Важно:
-Recovery не заменяет fatigue, а корректирует итоговую readiness.
+- отражает восстановление организма
+- формируется из HealthKit-derived tables
+- материализуется в `health_recovery_daily`
+
+Важно:
+
+Recovery не заменяет fatigue, а корректирует итоговую readiness поверх load model.
 
 ---
 
 ## 1.2 Readiness ≠ Freshness
 
-В Model V1:
-readiness ≈ freshness
+В legacy load-only подходе readiness мог использоваться как proxy от freshness.
 
-В Model V2:
+В текущей model v2:
+
+```text
 readiness = f(load_state, recovery_state)
+```
 
 ---
 
 ## 1.3 Fast / Slow fatigue
 
-Вместо одного fatigue:
+В model v2 используются:
 
-- fatigue_fast (τ ≈ 2 дня)
-- fatigue_slow (τ ≈ 7 дней)
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
 
-Итого:
+Где:
 
-fatigue_total = fatigue_fast + fatigue_slow  
+```text
+fatigue_total = 0.65 * fatigue_fast + 0.35 * fatigue_slow
 freshness = fitness - fatigue_total
-
-Это дает:
-- быстрый отклик после восстановления
-- накопление усталости при серии тренировок
+```
 
 ---
 
-## 1.4 Нелинейность нагрузки
+## 1.4 Calendar-continuous load state
 
-Вход нагрузки должен быть нелинейным:
+`load_state_daily_v2` считается по непрерывной календарной оси.
 
-load_input = A * (1 - exp(-B * TSS))
+Это означает:
 
-Смысл:
-- 200 TSS ≠ 2 × 100 TSS
-- предотвращает «раздувание» модели
+- расчет идет не только по тренировочным дням
+- в дни без тренировок используется `tss = 0`
 
 ---
 
-## 1.5 Probability вместо только score
+## 1.5 Current load input
 
-Model V2 вводит:
+Поле называется `load_input_nonlinear`, но текущий backend baseline использует линейный input:
 
-- readiness_score
-- good_day_probability
+```text
+load_input_nonlinear = TSS
+```
 
-good_day_probability = sigmoid(readiness_score_raw)
+Нелинейная трансформация пока не реализована.
 
-Это позволяет:
-- убрать жесткие пороги
-- сделать рекомендации более гибкими
+---
+
+## 1.6 Probability layer
+
+Model v2 вводит:
+
+- `readiness_score`
+- `good_day_probability`
+
+Текущий baseline:
+
+```text
+good_day_probability = readiness_score / 100
+```
+
+Это probability-like layer для decision support, а не финально откалиброванная вероятность.
 
 ---
 
@@ -101,205 +114,212 @@ good_day_probability = sigmoid(readiness_score_raw)
 ## 2.1 Ingestion layer
 
 Источники:
+
 - Strava
 - HealthKit
 
----
+Реализовано:
 
-## 2.2 Normalized layer
-
-Таблицы:
-
-Load:
-- activity_metrics
-- daily_training_load
-
-Recovery:
-- health_sleep_night
-- health_resting_hr_daily
-- health_hrv_sample
-- health_weight_measurement
+- Strava ingestion baseline
+- HealthKit raw ingest
+- HealthKit full-sync orchestration
 
 ---
 
-## 2.3 Daily feature layer
+## 2.2 Raw layer
 
-- daily_training_load
-- daily_fitness_state (V1, legacy)
-- health_recovery_daily
+Ключевые raw сущности:
 
----
-
-## 2.4 Model layer (V2)
-
-Новые таблицы:
-
-- load_state_daily_v2
-- readiness_daily
+- `strava_activity_raw`
+- `healthkit_ingest_raw`
 
 ---
 
-## 2.5 User insight layer
+## 2.3 Normalized layer
 
-Использует Model V2:
+Текущие normalized health tables:
 
-- daily readiness summary
-- ride briefing
-- training feedback
-- recommendations
+- `health_sleep_night`
+- `health_resting_hr_daily`
+- `health_hrv_sample`
+- `health_weight_measurement`
+
+Load-side daily aggregate:
+
+- `daily_training_load`
 
 ---
 
-# 3. Load Model V2
+## 2.4 Recovery layer
 
-## 3.1 Параметры
+Текущая таблица:
 
-- tau_fitness ≈ 40
-- tau_fatigue_fast ≈ 2
-- tau_fatigue_slow ≈ 7
+- `health_recovery_daily`
 
-## 3.2 Формулы
+Содержит:
 
+- sleep metrics
+- resting HR
+- HRV daily median
+- latest weight
+- `recovery_score_simple`
+
+---
+
+## 2.5 Load model layer
+
+Текущая таблица:
+
+- `load_state_daily_v2`
+
+Содержит:
+
+- `tss`
+- `load_input_nonlinear`
+- `fitness`
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
+- `freshness`
+
+---
+
+## 2.6 Readiness layer
+
+Текущая таблица:
+
+- `readiness_daily`
+
+Содержит:
+
+- `freshness`
+- `recovery_score_simple`
+- `readiness_score_raw`
+- `readiness_score`
+- `good_day_probability`
+- `status_text`
+- `explanation_json`
+
+---
+
+# 3. HealthKit full-sync architecture
+
+Текущий iOS sync endpoint:
+
+```text
+POST /api/v1/healthkit/full-sync/{user_id}
+```
+
+Pipeline:
+
+```text
+raw ingest
+-> latest raw -> normalized
+-> recompute health_recovery_daily
+-> recompute readiness_daily
+```
+
+---
+
+# 4. Load Model V2
+
+## 4.1 Параметры
+
+- `tau_fitness = 40`
+- `tau_fatigue_fast = 4`
+- `tau_fatigue_slow = 9`
+- `weight_fatigue_fast = 0.65`
+- `weight_fatigue_slow = 0.35`
+
+## 4.2 Формулы
+
+```text
 fitness[d] =
-    fitness[d-1] + (load_input[d] - fitness[d-1]) / tau_fitness
+    fitness[d-1] + (load_input[d] - fitness[d-1]) / 40
 
 fatigue_fast[d] =
-    fatigue_fast[d-1] + (load_input[d] - fatigue_fast[d-1]) / tau_fatigue_fast
+    fatigue_fast[d-1] + (load_input[d] - fatigue_fast[d-1]) / 4
 
 fatigue_slow[d] =
-    fatigue_slow[d-1] + (load_input[d] - fatigue_slow[d-1]) / tau_fatigue_slow
+    fatigue_slow[d-1] + (load_input[d] - fatigue_slow[d-1]) / 9
 
-fatigue_total[d] = fatigue_fast[d] + fatigue_slow[d]
+fatigue_total[d] =
+    0.65 * fatigue_fast[d] + 0.35 * fatigue_slow[d]
 
-freshness[d] = fitness[d] - fatigue_total[d]
-
----
-
-# 4. Recovery Model
-
-Источник: HealthKit
-
-Данные:
-
-- sleep
-- HRV
-- resting HR
-- weight
-
-## 4.1 Текущая реализация (V1)
-
-health_recovery_daily:
-
-- sleep_minutes
-- resting_hr_bpm
-- hrv_daily_median_ms
-- weight_kg
-- recovery_score_simple
-
-## 4.2 План расширения
-
-Добавить:
-
-- sleep_score_simple
-- hrv_dev (относительно baseline)
-- rhr_dev
+freshness[d] =
+    fitness[d] - fatigue_total[d]
+```
 
 ---
 
-# 5. Readiness Model V2
+# 5. Recovery Model
 
-## 5.1 Базовая формула (V1)
+Источник: HealthKit.
 
-readiness_score_raw =
-    w1 * freshness +
-    w2 * recovery_score_simple
+Текущая реализация:
 
-## 5.2 Расширенная формула (V2+)
+- raw payload сохраняется
+- latest raw раскладывается в normalized tables
+- `health_recovery_daily` агрегирует day-level recovery state
 
-readiness_score_raw =
-    w1 * freshness
-  + w2 * recovery_score
-  + w3 * hrv_dev
-  - w4 * rhr_dev
-  + w5 * sleep_score
+Текущий recovery output:
 
----
+- `recovery_score_simple`
 
-# 6. Probability Layer
-
-good_day_probability = sigmoid(readiness_score_raw)
-
-Назначение:
-- оценка вероятности успешной тренировки
-- основа для рекомендаций
+Это baseline heuristic score, не финальная recovery model.
 
 ---
 
-# 7. Таблицы Model V2
+# 6. Readiness Model V2
 
-## 7.1 load_state_daily_v2
+## 6.1 Baseline formula
 
-- tss
-- load_input_nonlinear
-- fitness
-- fatigue_fast
-- fatigue_slow
-- fatigue_total
-- freshness
+```text
+freshness_norm = clamp(50 + freshness, 0, 100)
+readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
+readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
+good_day_probability = readiness_score / 100
+```
 
-## 7.2 readiness_daily
+## 6.2 Storage
 
-- freshness
-- recovery_score
-- readiness_score
-- good_day_probability
-- explanation_json
+Readiness хранится отдельно в `readiness_daily`.
 
----
+Это важно архитектурно:
 
-# 8. Roadmap
-
-- стабилизировать `load_state_daily_v2`
-- зафиксировать формулу `readiness_score_raw`
-- откалибровать `good_day_probability`
-- добавить `sleep_score_simple`, `hrv_dev`, `rhr_dev`
-- синхронизировать recommendation / ride briefing с probability layer
-
-## Phase 1
-- load_state_daily_v2
-- fast / slow fatigue
-
-## Phase 2
-- расширение health_recovery_daily
-- readiness_daily (freshness + recovery)
-
-## Phase 3
-- probability layer
-- интеграция в user layer
-
-## Phase 4
-- baseline (HRV_dev, RHR_dev)
-- улучшение модели
+- readiness не является просто полем load state
+- readiness — отдельный daily layer поверх двух контуров
 
 ---
 
-# 9. Что сознательно НЕ делаем сейчас
+# 7. Product-level consequence
 
-- ML модели
-- ARIMA / forecasting
-- сложные нелинейные системы
-- personalization через обучение
+Текущая продуктовая схема:
+
+```text
+LoadState + RecoveryState -> Readiness -> GoodDayProbability
+```
+
+Это и есть текущий baseline Human Engine.
+
+---
+
+# 8. Planned next steps
+
+- калибровка readiness / probability
+- расширение recovery signals
+- уточнение decision mapping
+- синхронизация recommendation / ride briefing с readiness layer
+
+---
+
+# 9. Что сознательно не делаем сейчас
+
+- ML-модели в core
+- black-box probability layer
+- скрытую интерпретацию readiness
+- LLM-based decision logic
 
 Причина:
-приоритет — прозрачность и интерпретируемость
 
----
-
-# 10. Ключевой принцип
-
-Model V2:
-
-Сначала объясняет нагрузку  
-Потом корректируется сигналами восстановления  
-
-Это базовая архитектура Human Engine.
+приоритет — прозрачность, воспроизводимость и инженерная проверяемость.

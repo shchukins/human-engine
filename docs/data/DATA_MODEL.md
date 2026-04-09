@@ -2,13 +2,13 @@
 
 ## 1. Purpose
 
-Этот документ описывает модель данных системы Human Engine.
+Этот документ описывает текущую модель данных Human Engine.
 
 Цель:
 
-- зафиксировать структуру хранения данных  
-- обеспечить воспроизводимость расчетов  
-- разделить raw и derived данные  
+- зафиксировать структуру хранения
+- обеспечить воспроизводимость расчетов
+- разделить raw, normalized и derived данные
 
 ---
 
@@ -16,26 +16,29 @@
 
 Модель данных должна:
 
-- сохранять raw данные без изменений  
-- позволять повторный расчет метрик  
-- быть прозрачной  
-- быть расширяемой  
+- сохранять raw payloads без изменения
+- позволять повторный расчет derived state
+- быть прозрачной
+- явно отделять implemented и planned layers
 
 ---
 
 ## 3. Data layers
 
-Система разделяет данные на уровни:
-
 ### 3.1 Raw data
 
 Необработанные данные из внешних источников.
 
+Примеры:
+
+- `strava_activity_raw`
+- `healthkit_ingest_raw`
+
 Свойства:
 
-- не изменяются  
-- сохраняются полностью  
-- являются источником истины  
+- не изменяются
+- сохраняются полностью
+- являются источником воспроизводимости
 
 ---
 
@@ -45,192 +48,281 @@
 
 Содержат:
 
-- события webhook  
-- jobs  
-- статусы обработки  
+- webhook события
+- jobs
+- статусы обработки
 
 ---
 
-### 3.3 Derived data (future)
+### 3.3 Normalized data
 
-Производные данные:
+Нормализованные таблицы, полученные из raw payloads.
 
-- features  
-- метрики  
-- readiness  
+Примеры:
 
-Могут пересчитываться.
-
----
-
-## 4. Core entities
+- `health_sleep_night`
+- `health_resting_hr_daily`
+- `health_hrv_sample`
+- `health_weight_measurement`
 
 ---
 
-### 4.1 strava_webhook_event
+### 3.4 Derived daily state
+
+Производные таблицы, которые могут пересчитываться.
+
+Примеры:
+
+- `daily_training_load`
+- `health_recovery_daily`
+- `load_state_daily_v2`
+- `readiness_daily`
+
+---
+
+## 4. Core ingestion entities
+
+### 4.1 `strava_webhook_event`
 
 События от Strava.
 
-Содержит:
-
-- тип события  
-- object_id  
-- время  
-- payload  
-
 Назначение:
 
-- триггер ingestion  
+- триггер ingestion
 
 ---
 
-### 4.2 strava_activity_ingest_job
+### 4.2 `strava_activity_ingest_job`
 
 Задача на загрузку активности.
 
-Содержит:
+Назначение:
 
-- ссылка на webhook_event  
-- статус  
-- попытки  
-- ошибки  
+- управление асинхронной загрузкой
+
+---
+
+### 4.3 `strava_activity_raw`
+
+Сырые данные активности из Strava API.
 
 Назначение:
 
-- управление асинхронной загрузкой  
+- источник для downstream расчетов
 
 ---
 
-### 4.3 strava_activity_raw
+### 4.4 `healthkit_ingest_raw`
 
-Сырые данные активности.
-
-Содержит:
-
-- полный ответ Strava API  
-- метаданные активности  
+Сырой payload HealthKit sync.
 
 Назначение:
 
-- источник для всех расчетов  
+- воспроизводимость HealthKit ingest
+- исходный источник для нормализации health data
 
 ---
 
-### 4.4 strava_activity_stream_raw (future)
+## 5. Current normalized and derived entities
 
-Streams данных:
+### 5.1 `daily_training_load`
 
-- power  
-- heart rate  
-- cadence  
-- speed  
+Дневная агрегированная нагрузка из тренировок.
 
 Назначение:
 
-- детальный анализ  
+- вход для `load_state_daily_v2`
+
+Ключевое поле:
+
+- `tss`
 
 ---
 
-## 5. Derived entities (planned)
+### 5.2 `health_sleep_night`
+
+Нормализованная запись о сне.
+
+Назначение:
+
+- хранить sleep night по `wake_date`
+- быть входом для recovery aggregation
+
+Ключевые поля:
+
+- `wake_date`
+- `sleep_start_at`
+- `sleep_end_at`
+- `total_sleep_minutes`
+- `awake_minutes`
+- `core_minutes`
+- `rem_minutes`
+- `deep_minutes`
+- `in_bed_minutes`
 
 ---
 
-### 5.1 activity_metrics
+### 5.3 `health_resting_hr_daily`
 
-Метрики активности:
+Нормализованный resting HR по дате.
 
-- NP  
-- IF  
-- TSS  
+Ключевые поля:
 
----
-
-### 5.2 daily_training_load
-
-Агрегированные данные:
-
-- TSS за день  
-- суммарная нагрузка  
+- `date`
+- `bpm`
 
 ---
 
-### 5.3 daily_fitness_state
+### 5.4 `health_hrv_sample`
 
-Legacy-состояние (V1 baseline):
+Нормализованные HRV samples.
 
-- CTL  
-- ATL  
-- TSB  
+Назначение:
 
----
+- хранить sample-level HRV
+- поддерживать day-level aggregation через median
 
-### 5.4 health_recovery_daily
+Ключевые поля:
 
-Дневная recovery-агрегация:
-
-- sleep_minutes
-- resting_hr_bpm
-- hrv_daily_median_ms
-- weight_kg
-- recovery_score_simple
+- `sample_start_at`
+- `value_ms`
 
 ---
 
-### 5.5 load_state_daily_v2
+### 5.5 `health_weight_measurement`
 
-Load model v2:
+Нормализованные измерения веса.
 
-- tss
-- load_input_nonlinear
-- fitness
-- fatigue_fast
-- fatigue_slow
-- fatigue_total
-- freshness
+Ключевые поля:
+
+- `measured_at`
+- `kilograms`
 
 ---
 
-### 5.6 readiness_daily
+### 5.6 `health_recovery_daily`
 
-Оценка готовности:
+Дневная recovery-агрегация из health tables.
 
-- freshness
-- recovery_score
-- readiness_score
-- good_day_probability
-- explanation_json
+Источник:
+
+- `health_sleep_night`
+- `health_resting_hr_daily`
+- `health_hrv_sample`
+- `health_weight_measurement`
+
+Ключевые поля:
+
+- `sleep_minutes`
+- `awake_minutes`
+- `rem_minutes`
+- `deep_minutes`
+- `resting_hr_bpm`
+- `hrv_daily_median_ms`
+- `weight_kg`
+- `recovery_score_simple`
+
+---
+
+### 5.7 `load_state_daily_v2`
+
+Load model v2.
+
+Источник:
+
+- `daily_training_load`
+
+Свойства расчета:
+
+- рассчитывается по непрерывной календарной оси
+- в дни без тренировок используется `tss = 0`
+- текущий `load_input_nonlinear` фактически равен линейному input по TSS
+
+Ключевые поля:
+
+- `tss`
+- `load_input_nonlinear`
+- `fitness`
+- `fatigue_fast`
+- `fatigue_slow`
+- `fatigue_total`
+- `freshness`
+- `version`
+
+---
+
+### 5.8 `readiness_daily`
+
+Отдельный readiness layer.
+
+Источник:
+
+- `load_state_daily_v2`
+- `health_recovery_daily`
+
+Ключевые поля:
+
+- `freshness`
+- `recovery_score_simple`
+- `readiness_score_raw`
+- `readiness_score`
+- `good_day_probability`
+- `status_text`
+- `explanation_json`
+- `version`
 
 ---
 
 ## 6. Relationships
 
-Связи:
+Текущие связи:
 
-- webhook_event → ingest_job (1:N)  
-- ingest_job → activity_raw (1:1)  
-- activity_raw → activity_metrics (1:1)  
-- activity_metrics → daily_training_load (N:1)  
-- daily_training_load → load_state_daily_v2 (N:1)
-- health_recovery_daily → readiness_daily (N:1)
-- load_state_daily_v2 → readiness_daily (N:1)
+- `strava_webhook_event -> strava_activity_ingest_job` (1:N)
+- `strava_activity_ingest_job -> strava_activity_raw` (1:1 / 1:N depending on retries)
+- `strava_activity_raw -> daily_training_load` (N:1 through processing layer)
+- `healthkit_ingest_raw -> health_sleep_night` (1:N)
+- `healthkit_ingest_raw -> health_resting_hr_daily` (1:N)
+- `healthkit_ingest_raw -> health_hrv_sample` (1:N)
+- `healthkit_ingest_raw -> health_weight_measurement` (1:N)
+- `daily_training_load -> load_state_daily_v2` (N:1)
+- `health_recovery_daily -> readiness_daily` (N:1)
+- `load_state_daily_v2 -> readiness_daily` (N:1)
 
 ---
 
-## 7. Data flow
+## 7. Current data flow
 
-Webhook event
+### 7.1 Health contour
+
+```text
+HealthKit
 ↓
-Ingest job
+healthkit_ingest_raw
 ↓
-Raw activity
+health_sleep_night / health_resting_hr_daily / health_hrv_sample / health_weight_measurement
 ↓
-Metrics
+health_recovery_daily
+```
+
+### 7.2 Load contour
+
+```text
+Strava
 ↓
-Daily aggregates
+strava raw / processing
 ↓
-Load state + Recovery state
+daily_training_load
 ↓
-Readiness
+load_state_daily_v2
+```
+
+### 7.3 Readiness contour
+
+```text
+load_state_daily_v2 + health_recovery_daily
+↓
+readiness_daily
+```
 
 ---
 
@@ -238,9 +330,9 @@ Readiness
 
 Для обеспечения воспроизводимости:
 
-- raw данные не изменяются  
-- все derived данные можно пересчитать  
-- формулы зафиксированы в METRICS.md  
+- raw данные не изменяются
+- normalized и derived таблицы можно пересчитать
+- readiness считается из сохраненных load и recovery layers
 
 ---
 
@@ -248,31 +340,28 @@ Readiness
 
 ### Raw data
 
-- хранить всегда  
-- не удалять  
+- хранить всегда
+- не удалять без отдельного решения
+
+### Normalized and derived data
+
+- хранить как materialized daily state
+- поддерживать пересчет из upstream layers
+
+Общая стратегия versioning и retention еще остается открытым вопросом.
 
 ---
 
-### Derived data
+## 10. Versioning
 
-Возможные стратегии:
+Текущие versioned entities:
 
-1. хранить полностью  
-2. пересчитывать  
-3. гибрид  
+- `load_state_daily_v2`
+- `readiness_daily`
 
-(решение пока открыто)
+Требование:
 
----
-
-## 10. Versioning (future)
-
-При изменении логики:
-
-- версии метрик  
-- версии моделей  
-
-Исторические данные не должны ломаться.
+- при изменении формул не ломать исторические расчеты
 
 ---
 
@@ -280,16 +369,16 @@ Readiness
 
 Нельзя:
 
-- изменять raw данные  
-- терять данные ingestion  
-- хранить только агрегаты без исходных данных  
+- изменять raw данные
+- терять ingestion history
+- подменять derived state несохраняемыми эвристиками
 
 ---
 
 ## 12. Open questions
 
-- где хранить features  
-- как делать пересчет  
-- как организовать versioning  
+- где хранить расширенные features
+- как делать массовый перерасчет
+- как единообразно организовать versioning
 
-(см. OPEN_DECISIONS.md)
+См. `docs/architecture/OPEN_DECISIONS.md`.
