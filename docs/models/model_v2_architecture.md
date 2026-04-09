@@ -2,7 +2,7 @@
 
 ## Контекст
 
-Model v2 уже реализована в backend как baseline-архитектура.
+Model V2 уже реализована в backend как baseline-архитектура.
 
 Переход выполнен от load-only readiness к двухконтурной схеме:
 
@@ -44,7 +44,7 @@ Recovery не заменяет fatigue, а корректирует итогов
 
 В legacy load-only подходе readiness мог использоваться как proxy от freshness.
 
-В текущей model v2:
+В текущей Model V2:
 
 ```text
 readiness = f(load_state, recovery_state)
@@ -54,7 +54,7 @@ readiness = f(load_state, recovery_state)
 
 ## 1.3 Fast / Slow fatigue
 
-В model v2 используются:
+В Model V2 используются:
 
 - `fatigue_fast`
 - `fatigue_slow`
@@ -94,7 +94,7 @@ load_input_nonlinear = TSS
 
 ## 1.6 Probability layer
 
-Model v2 вводит:
+Model V2 вводит:
 
 - `readiness_score`
 - `good_day_probability`
@@ -163,6 +163,14 @@ Load-side daily aggregate:
 - HRV daily median
 - latest weight
 - `recovery_score_simple`
+- `recovery_explanation_json`
+
+Текущий recovery baseline:
+
+- использует `hrv_baseline` и `rhr_baseline`
+- считает `hrv_dev` и `rhr_dev`
+- считает component scores для sleep, HRV и resting HR
+- сохраняет breakdown в explanation payload
 
 ---
 
@@ -265,8 +273,9 @@ freshness[d] =
 Текущий recovery output:
 
 - `recovery_score_simple`
+- `recovery_explanation_json`
 
-Это baseline heuristic score, не финальная recovery model.
+Это baseline-aware recovery score, не финальная откалиброванная recovery model.
 
 ---
 

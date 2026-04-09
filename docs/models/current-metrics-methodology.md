@@ -10,7 +10,7 @@
 
 Этот документ описывает, как в текущей backend-реализации Human Engine рассчитываются основные метрики тренировки и состояния.
 
-Документ фиксирует **реально реализованный baseline для model v2**. Если код меняется, методика должна обновляться вместе с ним.
+Документ фиксирует **реально реализованный baseline для Model V2**. Если код меняется, методика должна обновляться вместе с ним.
 
 ## Область действия
 
@@ -168,7 +168,7 @@ FatigueSlow_new = FatigueSlow_prev + (load_input - FatigueSlow_prev) / 9
 
 #### 3.1.5 Fatigue Total
 
-В текущей model v2:
+В текущей Model V2:
 
 ```text
 FatigueTotal = 0.65 * FatigueFast + 0.35 * FatigueSlow
@@ -205,16 +205,41 @@ Freshness = Fitness - FatigueTotal
 - `hrv_daily_median_ms`
 - `weight_kg`
 - `recovery_score_simple`
+- `recovery_explanation_json`
 
 #### 3.2.1 Recovery Score Simple
 
-Это baseline heuristic score `0..100`.
+`recovery_score_simple` остается именем поля, но текущий backend baseline уже использует baseline-aware scoring `0..100`.
 
 Свойства:
 
 - строится из сна, resting HR и HRV
-- не использует персональный baseline
-- является временным baseline-слоем, а не финальной recovery model
+- использует baseline HRV и baseline resting HR, если они доступны
+- сохраняет breakdown в `recovery_explanation_json`
+- является baseline-слоем, а не финальной откалиброванной recovery model
+
+#### 3.2.2 Recovery baseline components
+
+Текущий recovery scoring использует:
+
+- `hrv_baseline`
+- `rhr_baseline`
+- `hrv_dev`
+- `rhr_dev`
+- `sleep_score`
+- `hrv_score`
+- `rhr_score`
+
+Базовая формула:
+
+```text
+sleep_score = clamp(min(sleep_minutes / 480, 1.0) * 100, 0, 100)
+hrv_score = clamp(50 + 50 * hrv_dev, 0, 100)
+rhr_score = clamp(50 - 50 * rhr_dev, 0, 100)
+recovery_score_simple = 0.4 * hrv_score + 0.3 * rhr_score + 0.3 * sleep_score
+```
+
+Если baseline недоступен для компонента, используется нейтральное значение `50`.
 
 ---
 
@@ -285,6 +310,7 @@ GoodDayProbability = Readiness / 100
 - HealthKit ingestion
 - normalized health tables
 - `health_recovery_daily`
+- `recovery_explanation_json`
 - `load_state_daily_v2`
 - `readiness_daily`
 - `good_day_probability`
@@ -292,6 +318,6 @@ GoodDayProbability = Readiness / 100
 ### Ограничения текущего подхода
 
 1. `load_input_nonlinear` пока фактически линейный.
-2. Recovery-контур пока использует простой aggregated score без baseline deviations.
+2. Recovery-контур уже baseline-aware, но readiness пока использует его как агрегированный score, а не как full multicomponent formula.
 3. `GoodDayProbability` пока является простым mapping от readiness score.
 4. Decision layer поверх readiness еще не откалиброван окончательно.

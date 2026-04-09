@@ -43,6 +43,8 @@
 ### Feature Extraction
 Процесс преобразования raw и normalized data в daily features и derived state.
 
+В текущем backend baseline расширенный отдельный feature layer еще не является центральным persisted слоем. Основные deterministic daily layers уже строятся напрямую из raw и normalized данных.
+
 ---
 
 ## 2. Modeling layer
@@ -81,6 +83,15 @@
 В текущем backend реализовано в `health_recovery_daily`.
 
 Recovery не заменяет fatigue, а корректирует readiness поверх load model.
+
+Текущий baseline recovery layer уже включает:
+
+- baseline-aware scoring
+- `hrv_baseline`
+- `rhr_baseline`
+- `hrv_dev`
+- `rhr_dev`
+- explanation payload
 
 ---
 
@@ -125,6 +136,12 @@ Recovery не заменяет fatigue, а корректирует readiness п
 
 В текущем backend это отдельное поле `good_day_probability` в `readiness_daily`.
 
+Важно:
+
+- сейчас это baseline probability-like mapping
+- текущее вычисление: `good_day_probability = readiness_score / 100`
+- это не статистически откалиброванная вероятность
+
 ---
 
 ### Recommendation
@@ -136,6 +153,8 @@ Recovery не заменяет fatigue, а корректирует readiness п
 - допустимую интенсивность
 - ограничения по дню
 
+В текущем состоянии recommendation layer остается planned.
+
 ---
 
 ### Ride Briefing
@@ -146,6 +165,8 @@ Recovery не заменяет fatigue, а корректирует readiness п
 - детерминированным
 - стабильным
 - опираться на readiness layer, а не на свободный текст
+
+В текущем состоянии ride briefing layer остается planned.
 
 ---
 
@@ -162,7 +183,7 @@ Recovery не заменяет fatigue, а корректирует readiness п
 ### Pipeline
 Последовательность обработки данных:
 
-`ingestion -> raw storage -> normalized data -> daily state -> readiness -> decision`
+`ingestion -> raw storage -> normalized data -> load/recovery state -> readiness -> decision`
 
 ---
 
@@ -221,7 +242,7 @@ Large Language Model.
 
 - сохранения raw данных
 - явной логики
-- versioned derived layers
+- versioned derived layers там, где это уже реализовано
 
 ---
 

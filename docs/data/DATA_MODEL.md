@@ -221,6 +221,13 @@
 - `hrv_daily_median_ms`
 - `weight_kg`
 - `recovery_score_simple`
+- `recovery_explanation_json`
+
+Комментарий:
+
+- поле `recovery_score_simple` исторически сохраняет имя для совместимости
+- текущий backend считает его через baseline-aware scoring layer
+- breakdown и baseline-компоненты сохраняются в `recovery_explanation_json`
 
 ---
 
@@ -231,6 +238,7 @@ Load model v2.
 Источник:
 
 - `daily_training_load`
+- календарный диапазон между training и recovery датами пользователя
 
 Свойства расчета:
 
@@ -285,6 +293,10 @@ Load model v2.
 - `healthkit_ingest_raw -> health_hrv_sample` (1:N)
 - `healthkit_ingest_raw -> health_weight_measurement` (1:N)
 - `daily_training_load -> load_state_daily_v2` (N:1)
+- `health_sleep_night -> health_recovery_daily` (N:1)
+- `health_resting_hr_daily -> health_recovery_daily` (N:1)
+- `health_hrv_sample -> health_recovery_daily` (N:1)
+- `health_weight_measurement -> health_recovery_daily` (N:1)
 - `health_recovery_daily -> readiness_daily` (N:1)
 - `load_state_daily_v2 -> readiness_daily` (N:1)
 
@@ -304,6 +316,11 @@ health_sleep_night / health_resting_hr_daily / health_hrv_sample / health_weight
 health_recovery_daily
 ```
 
+Комментарий:
+
+- `health_recovery_daily` materializes day-level recovery state
+- `recovery_explanation_json` хранит breakdown текущего baseline scoring
+
 ### 7.2 Load contour
 
 ```text
@@ -316,6 +333,11 @@ daily_training_load
 load_state_daily_v2
 ```
 
+Комментарий:
+
+- `load_state_daily_v2` materializes calendar-continuous load state
+- для дней без тренировки используется `tss = 0`
+
 ### 7.3 Readiness contour
 
 ```text
@@ -323,6 +345,11 @@ load_state_daily_v2 + health_recovery_daily
 ↓
 readiness_daily
 ```
+
+Комментарий:
+
+- readiness хранится отдельно от load layer
+- `good_day_probability` является отдельным output внутри `readiness_daily`
 
 ---
 
@@ -359,6 +386,11 @@ readiness_daily
 - `load_state_daily_v2`
 - `readiness_daily`
 
+Текущая особенность:
+
+- `health_recovery_daily` пока не versioned отдельным полем
+- для recovery breakdown используется `recovery_explanation_json`
+
 Требование:
 
 - при изменении формул не ломать исторические расчеты
@@ -379,6 +411,6 @@ readiness_daily
 
 - где хранить расширенные features
 - как делать массовый перерасчет
-- как единообразно организовать versioning
+- как единообразно организовать versioning recovery layer
 
 См. `docs/architecture/OPEN_DECISIONS.md`.
