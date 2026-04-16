@@ -52,7 +52,9 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
 
             cur.execute(
                 """
-                select recovery_score_simple
+                select
+                    recovery_score_simple,
+                    recovery_explanation_json
                 from health_recovery_daily
                 where user_id = %s
                   and date = %s;
@@ -63,6 +65,10 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
 
             freshness = load_row[0] if load_row else None
             recovery_score_simple = recovery_row[0] if recovery_row else None
+            recovery_explanation = recovery_row[1] if recovery_row else None
+
+            if isinstance(recovery_explanation, str):
+                recovery_explanation = json.loads(recovery_explanation)
 
             if freshness is None and recovery_score_simple is None:
                 raise HTTPException(
@@ -104,6 +110,7 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     "recovery_score_simple": 0.4,
                 },
                 "formula": "0.6 * freshness_norm + 0.4 * recovery_score_simple",
+                "recovery_explanation": recovery_explanation,
             }
 
             cur.execute(

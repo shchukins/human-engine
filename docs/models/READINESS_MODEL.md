@@ -170,6 +170,12 @@ good_day_probability = readiness_score / 100
 - `recovery_score_simple`
 - веса формулы
 - строку формулы
+- `recovery_explanation`
+
+Где:
+
+- `recovery_explanation` протягивается из `health_recovery_daily.recovery_explanation_json`
+- readiness formula при этом не меняется
 
 Это нужно для explainability и отладки.
 
