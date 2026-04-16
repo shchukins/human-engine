@@ -82,6 +82,7 @@ Pipeline:
 - таблица `health_recovery_daily` уже реализована
 - поле `recovery_score_simple` исторически сохраняет старое имя
 - по смыслу текущий recovery layer уже baseline-aware, а не purely heuristic-only placeholder
+- breakdown recovery baseline сохраняется в `recovery_explanation_json`
 
 ### 2.3 Readiness layer
 
@@ -105,6 +106,7 @@ Pipeline:
 - readiness хранится как отдельный daily storage layer
 - readiness не равен `freshness`
 - readiness объединяет load contour и recovery contour
+- `readiness_daily.explanation_json` теперь включает recovery breakdown из `health_recovery_daily.recovery_explanation_json`
 
 ---
 
@@ -206,6 +208,7 @@ good_day_probability = readiness_score / 100
 - `good_day_probability` уже реализован
 - это baseline probability-like mapping
 - это не статистически откалиброванная вероятность
+- readiness formula не менялась; расширен только explanation payload
 
 ---
 

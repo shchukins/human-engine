@@ -266,6 +266,17 @@ Fallback behavior:
 - если нет recovery score, используется `Freshness_norm`
 - если нет load score, используется `RecoveryScoreSimple`
 
+`readiness_daily.explanation_json` при этом хранит:
+
+- `freshness`
+- `freshness_norm`
+- `recovery_score_simple`
+- `weights`
+- `formula`
+- `recovery_explanation`
+
+Где `recovery_explanation` прокидывается из `health_recovery_daily.recovery_explanation_json`, чтобы readiness layer содержал не только итоговый recovery score, но и recovery breakdown.
+
 #### 3.3.3 Final readiness score
 
 ```text
@@ -318,6 +329,6 @@ GoodDayProbability = Readiness / 100
 ### Ограничения текущего подхода
 
 1. `load_input_nonlinear` пока фактически линейный.
-2. Recovery-контур уже baseline-aware, но readiness пока использует его как агрегированный score, а не как full multicomponent formula.
+2. Recovery-контур уже baseline-aware, но readiness formula пока использует его как агрегированный score, а не как full multicomponent formula.
 3. `GoodDayProbability` пока является простым mapping от readiness score.
 4. Decision layer поверх readiness еще не откалиброван окончательно.
