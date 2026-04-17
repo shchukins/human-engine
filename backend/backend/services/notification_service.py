@@ -2,6 +2,7 @@ import math
 import requests
 import json
 from datetime import date, datetime, timezone
+from typing import Any
 
 from backend.config import settings
 from backend.db import get_conn
@@ -27,6 +28,38 @@ def _fmt(value: float | None, digits: int = 1) -> str:
     if isinstance(value, float) and math.isnan(value):
         return "n/a"
     return f"{value:.{digits}f}"
+
+
+def _fmt_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float) and math.isnan(value):
+        return "n/a"
+    return f"{round(value * 100)}%"
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(numeric):
+        return None
+    return numeric
 
 
 def compute_readiness_score(freshness: float | None) -> int | None:
@@ -230,6 +263,104 @@ def build_briefing_text(
     return "Очень хороший день для интенсивной тренировки."
 
 
+def build_readiness_comment(
+    freshness: float | None,
+    recovery_score_simple: float | None,
+    recovery_explanation: dict[str, Any] | None,
+) -> str:
+    recovery_explanation = recovery_explanation or {}
+
+    sleep_score = _float_or_none(recovery_explanation.get("sleep_score"))
+    hrv_score = _float_or_none(recovery_explanation.get("hrv_score"))
+    rhr_score = _float_or_none(recovery_explanation.get("rhr_score"))
+
+    scores = {
+        "sleep": sleep_score,
+        "hrv": hrv_score,
+        "rhr": rhr_score,
+    }
+    available_scores = {
+        key: value for key, value in scores.items() if value is not None
+    }
+
+    if (
+        freshness is not None
+        and freshness >= 5
+        and recovery_score_simple is not None
+        and recovery_score_simple >= 70
+    ):
+        return "Состояние выглядит хорошим: и свежесть, и восстановление на хорошем уровне."
+
+    if freshness is not None and freshness <= -5:
+        return "Есть признаки накопленной усталости, сегодня лучше контролировать нагрузку."
+
+    if not available_scores:
+        return "Восстановление выглядит стабильно, но деталей по breakdown пока недостаточно."
+
+    min_score = min(available_scores.values())
+    max_score = max(available_scores.values())
+
+    if min_score >= 75:
+        return "Восстановление выглядит хорошим по основным сигналам."
+
+    lowest_component = min(
+        available_scores,
+        key=available_scores.get,
+    )
+
+    if lowest_component == "sleep":
+        return "Основной ограничивающий фактор сегодня — сон."
+    if lowest_component == "hrv":
+        return "HRV ниже baseline, восстановление выглядит неполным."
+    if lowest_component == "rhr":
+        return "Пульс покоя выше обычного, это может указывать на неполное восстановление."
+
+    if max_score >= 75:
+        return "Часть recovery signals выглядит хорошо, но есть один ограничивающий фактор."
+
+    return "Состояние смешанное: recovery signals расходятся между собой."
+
+
+def build_readiness_briefing_message(
+    *,
+    target_date: Any,
+    readiness_score: float | None,
+    status_text: str | None,
+    good_day_probability: float | None,
+    freshness: float | None,
+    recovery_score_simple: float | None,
+    recovery_explanation: dict[str, Any] | None,
+) -> str:
+    recovery_explanation = recovery_explanation or {}
+
+    lines = [
+        "Human Engine · Today",
+        "",
+        f"Дата: {target_date}",
+        "",
+        f"Готовность: {_fmt(readiness_score, 1)}",
+        f"Статус: {status_text or 'n/a'}",
+        f"Вероятность хорошего дня: {_fmt_percent(good_day_probability)}",
+        "",
+        f"Свежесть: {_fmt(freshness, 1)}",
+        f"Восстановление: {_fmt(recovery_score_simple, 1)}",
+        "",
+        "Восстановление:",
+        f"• Сон: {_fmt(_float_or_none(recovery_explanation.get('sleep_score')), 1)}",
+        f"• HRV: {_fmt(_float_or_none(recovery_explanation.get('hrv_score')), 1)}",
+        f"• Пульс покоя: {_fmt(_float_or_none(recovery_explanation.get('rhr_score')), 1)}",
+        "",
+        "Комментарий:",
+        build_readiness_comment(
+            freshness=freshness,
+            recovery_score_simple=recovery_score_simple,
+            recovery_explanation=recovery_explanation,
+        ),
+    ]
+
+    return "\n".join(lines)
+
+
 def describe_freshness_trend(values: list[float]) -> str:
     if len(values) < 2:
         return "n/a"
@@ -389,10 +520,52 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
 
 
 def build_daily_readiness_message(user_id: str) -> str:
-    # Берем последнее доступное состояние пользователя из daily_fitness_state.
-    # Это summary состояния на сегодня, а не разбор конкретной тренировки.
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                    date,
+                    readiness_score,
+                    good_day_probability,
+                    status_text,
+                    explanation_json
+                from readiness_daily
+                where user_id = %s
+                  and version = 'v2'
+                order by date desc
+                limit 1;
+                """,
+                (user_id,),
+            )
+            readiness_row = cur.fetchone()
+
+            if readiness_row:
+                (
+                    readiness_date,
+                    readiness_score,
+                    good_day_probability,
+                    status_text,
+                    explanation_json,
+                ) = readiness_row
+
+                explanation = _as_dict(explanation_json)
+                recovery_explanation = _as_dict(
+                    explanation.get("recovery_explanation")
+                )
+
+                return build_readiness_briefing_message(
+                    target_date=readiness_date,
+                    readiness_score=_float_or_none(readiness_score),
+                    status_text=status_text,
+                    good_day_probability=_float_or_none(good_day_probability),
+                    freshness=_float_or_none(explanation.get("freshness")),
+                    recovery_score_simple=_float_or_none(
+                        explanation.get("recovery_score_simple")
+                    ),
+                    recovery_explanation=recovery_explanation,
+                )
+
             cur.execute(
                 """
                 select

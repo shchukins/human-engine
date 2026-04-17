@@ -160,9 +160,21 @@ FastAPI + PostgreSQL
 
 - readiness хранится отдельно от `load_state_daily_v2`
 - readiness не равен `freshness`
+- readiness собирается из двух контуров: load + recovery
 - текущий `good_day_probability` является baseline probability-like mapping:
   - `good_day_probability = readiness_score / 100`
   - это не статистически откалиброванная вероятность
+- `explanation_json` включает recovery breakdown из `health_recovery_daily.recovery_explanation_json`
+
+Recovery breakdown внутри `explanation_json.recovery_explanation`:
+
+- `sleep_score`
+- `hrv_score`
+- `rhr_score`
+- `hrv_baseline`
+- `rhr_baseline`
+- `hrv_dev`
+- `rhr_dev`
 
 ## HealthKit full sync pipeline
 
@@ -184,6 +196,37 @@ POST /api/v1/healthkit/full-sync/{user_id}
 - load_state_daily_v2 пересчитывается перед readiness, чтобы freshness был актуален
 - readiness пересчитывается как отдельный слой
 - public API уже работает end-to-end через VPS и Caddy
+
+## Telegram daily readiness notification
+
+Daily Telegram briefing в текущем backend использует `readiness_daily` как source of truth.
+
+Основные поля:
+
+- `readiness_score`
+- `status_text`
+- `good_day_probability`
+- `explanation_json.freshness`
+- `explanation_json.recovery_score_simple`
+- `explanation_json.recovery_explanation`
+
+Формат сообщения:
+
+- заголовок
+- readiness score
+- status text
+- good day probability
+- freshness
+- recovery score
+- recovery breakdown:
+  - сон
+  - HRV
+  - пульс покоя
+- короткий rule-based комментарий
+
+Fallback:
+
+- если `readiness_daily` для пользователя недоступен, backend может использовать старый fallback summary
 
 ## Технологический стек
 

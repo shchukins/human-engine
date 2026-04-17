@@ -1,5 +1,8 @@
 from backend.services.notification_service import (
     build_briefing_text,
+    build_daily_readiness_message,
+    build_readiness_briefing_message,
+    build_readiness_comment,
     build_workout_comment,
     classify_workout_type,
     compute_readiness_score,
@@ -160,6 +163,207 @@ def test_build_briefing_text_very_good_declining():
 
 def test_build_briefing_text_very_good_default():
     assert build_briefing_text(95, "stable", 10.0, 20.0) == "Очень хороший день для интенсивной тренировки."
+
+
+def test_build_readiness_comment_without_breakdown():
+    assert (
+        build_readiness_comment(
+            freshness=2.0,
+            recovery_score_simple=58.0,
+            recovery_explanation=None,
+        )
+        == "Восстановление выглядит стабильно, но деталей по breakdown пока недостаточно."
+    )
+
+
+def test_build_readiness_comment_sleep_is_lowest():
+    assert (
+        build_readiness_comment(
+            freshness=1.0,
+            recovery_score_simple=56.5,
+            recovery_explanation={
+                "sleep_score": 42.0,
+                "hrv_score": 61.0,
+                "rhr_score": 58.0,
+            },
+        )
+        == "Основной ограничивающий фактор сегодня — сон."
+    )
+
+
+def test_build_readiness_comment_hrv_is_lowest():
+    assert (
+        build_readiness_comment(
+            freshness=0.5,
+            recovery_score_simple=56.5,
+            recovery_explanation={
+                "sleep_score": 82.8,
+                "hrv_score": 42.1,
+                "rhr_score": 49.5,
+            },
+        )
+        == "HRV ниже baseline, восстановление выглядит неполным."
+    )
+
+
+def test_build_readiness_comment_rhr_is_lowest():
+    assert (
+        build_readiness_comment(
+            freshness=0.0,
+            recovery_score_simple=56.5,
+            recovery_explanation={
+                "sleep_score": 82.8,
+                "hrv_score": 72.0,
+                "rhr_score": 41.0,
+            },
+        )
+        == "Пульс покоя выше обычного, это может указывать на неполное восстановление."
+    )
+
+
+def test_build_readiness_comment_good_recovery_and_freshness():
+    assert (
+        build_readiness_comment(
+            freshness=6.0,
+            recovery_score_simple=78.0,
+            recovery_explanation={
+                "sleep_score": 85.0,
+                "hrv_score": 79.0,
+                "rhr_score": 77.0,
+            },
+        )
+        == "Состояние выглядит хорошим: и свежесть, и восстановление на хорошем уровне."
+    )
+
+
+def test_build_readiness_comment_negative_freshness():
+    assert (
+        build_readiness_comment(
+            freshness=-6.0,
+            recovery_score_simple=72.0,
+            recovery_explanation={
+                "sleep_score": 85.0,
+                "hrv_score": 79.0,
+                "rhr_score": 77.0,
+            },
+        )
+        == "Есть признаки накопленной усталости, сегодня лучше контролировать нагрузку."
+    )
+
+
+def test_build_readiness_briefing_message_uses_model_v2_fields():
+    message = build_readiness_briefing_message(
+        target_date="2026-04-17",
+        readiness_score=56.5,
+        status_text="Нормальная готовность",
+        good_day_probability=0.565,
+        freshness=5.0,
+        recovery_score_simple=56.5,
+        recovery_explanation={
+            "sleep_score": 82.8,
+            "hrv_score": 42.1,
+            "rhr_score": 49.5,
+        },
+    )
+
+    assert message == (
+        "Human Engine · Today\n\n"
+        "Дата: 2026-04-17\n\n"
+        "Готовность: 56.5\n"
+        "Статус: Нормальная готовность\n"
+        "Вероятность хорошего дня: 56%\n\n"
+        "Свежесть: 5.0\n"
+        "Восстановление: 56.5\n\n"
+        "Восстановление:\n"
+        "• Сон: 82.8\n"
+        "• HRV: 42.1\n"
+        "• Пульс покоя: 49.5\n\n"
+        "Комментарий:\n"
+        "HRV ниже baseline, восстановление выглядит неполным."
+    )
+
+
+class _FakeDailyReadinessCursor:
+    def __init__(self) -> None:
+        self.execute_calls: list[tuple[str, tuple]] = []
+        self._last_query = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, query, params):
+        self.execute_calls.append((query, params))
+        self._last_query = query
+
+    def fetchone(self):
+        if "from readiness_daily" in self._last_query:
+            return (
+                "2026-04-17",
+                56.5,
+                0.565,
+                "Нормальная готовность",
+                {
+                    "freshness": 5.0,
+                    "recovery_score_simple": 56.5,
+                    "recovery_explanation": {
+                        "sleep_score": 82.8,
+                        "hrv_score": 42.1,
+                        "rhr_score": 49.5,
+                    },
+                },
+            )
+        raise AssertionError(f"unexpected fetchone query: {self._last_query}")
+
+    def fetchall(self):
+        raise AssertionError(f"unexpected fetchall query: {self._last_query}")
+
+
+class _FakeDailyReadinessConn:
+    def __init__(self, cursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self):
+        return self._cursor
+
+
+def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
+    fake_cursor = _FakeDailyReadinessCursor()
+    fake_conn = _FakeDailyReadinessConn(fake_cursor)
+
+    monkeypatch.setattr(
+        "backend.services.notification_service.get_conn",
+        lambda: fake_conn,
+    )
+
+    message = build_daily_readiness_message(user_id="user-1")
+
+    assert message == (
+        "Human Engine · Today\n\n"
+        "Дата: 2026-04-17\n\n"
+        "Готовность: 56.5\n"
+        "Статус: Нормальная готовность\n"
+        "Вероятность хорошего дня: 56%\n\n"
+        "Свежесть: 5.0\n"
+        "Восстановление: 56.5\n\n"
+        "Восстановление:\n"
+        "• Сон: 82.8\n"
+        "• HRV: 42.1\n"
+        "• Пульс покоя: 49.5\n\n"
+        "Комментарий:\n"
+        "HRV ниже baseline, восстановление выглядит неполным."
+    )
+
+    assert len(fake_cursor.execute_calls) == 1
+    assert "from readiness_daily" in fake_cursor.execute_calls[0][0]
 
 
 def test_classify_workout_type_unknown():
