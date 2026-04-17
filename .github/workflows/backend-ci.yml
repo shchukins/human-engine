@@ -30,6 +30,7 @@ jobs:
         run: python -m compileall backend
 
       - name: Run unit tests
+        working-directory: backend
         run: pytest tests -v -k "not integration"
     env:
       PYTHONPATH: ${{ github.workspace }}/backend

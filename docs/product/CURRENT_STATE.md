@@ -1,6 +1,6 @@
 # Human Engine — CURRENT STATE
 
-Last updated: 2026-04-09
+Last updated: 2026-04-17
 
 ---
 
@@ -21,6 +21,8 @@ iOS -> public API -> backend -> raw -> normalized -> recovery -> readiness -> re
 ```
 
 Это уже не только модельная заготовка. В backend реализованы ingestion, materialized daily layers и response path.
+
+Daily Telegram readiness briefing также переведен на `readiness_daily` и recovery breakdown из `explanation_json`.
 
 ---
 
@@ -106,7 +108,9 @@ Pipeline:
 - readiness хранится как отдельный daily storage layer
 - readiness не равен `freshness`
 - readiness объединяет load contour и recovery contour
+- на последних health dates readiness считается из двух контуров, а не fallback-only от recovery
 - `readiness_daily.explanation_json` теперь включает recovery breakdown из `health_recovery_daily.recovery_explanation_json`
+- daily Telegram notification строится от `readiness_daily`, а не от legacy freshness-only summary
 
 ---
 
@@ -142,6 +146,7 @@ Endpoint:
 Особенности:
 
 - непрерывная календарная ось
+- `load_state_daily_v2` строится до latest health/recovery date
 - `tss = 0` в дни без тренировок
 - fast + slow fatigue
 - `fatigue_total` как weighted mixture
@@ -225,8 +230,8 @@ good_day_probability = readiness_score / 100
 - данные попадают в raw таблицу
 - latest raw раскладывается в normalized health tables
 - пересчитывается `health_recovery_daily`
-- current state дотягивается на backend через `load_state_daily_v2`
-- пересчитывается `readiness_daily`
+- `load_state_daily_v2` дотягивается до latest health/recovery date
+- на последних датах `readiness_daily` считается из load contour + recovery contour
 - `readiness_daily.explanation_json` содержит recovery breakdown
 - результат возвращается в iOS через public API
 
