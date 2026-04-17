@@ -144,6 +144,8 @@ daily_training_load
 ### 5.2 HealthKit full-sync pipeline
 
 ```text
+HealthKit iOS
+↓
 POST /api/v1/healthkit/full-sync/{user_id}
 ↓
 healthkit_ingest_raw
@@ -152,7 +154,11 @@ latest raw -> normalized health tables
 ↓
 health_recovery_daily recompute
 ↓
+load_state_daily_v2 recompute
+↓
 readiness_daily recompute
+↓
+notification_service
 ```
 
 Normalized health tables:
@@ -200,6 +206,7 @@ Normalized health tables:
 - в дни без тренировок используется `tss = 0`
 - `fatigue_total` является взвешенной смесью fast/slow fatigue
 - readiness считается из load state и recovery state, а не только из freshness
+- readiness является финальной агрегированной метрикой текущего state layer
 - `good_day_probability` хранится как отдельный probability layer
 
 ---
@@ -212,12 +219,17 @@ Normalized health tables:
 - `good_day_probability`
 - `status_text`
 - `explanation_json`
+- Telegram daily readiness notification
 
 Следующий слой:
 
-- daily readiness summary
 - recommendation
 - ride briefing
+
+Важно:
+
+- `notification_service` использует `readiness_daily`
+- notification layer не пересчитывает readiness formula, а читает уже materialized readiness state
 
 ---
 

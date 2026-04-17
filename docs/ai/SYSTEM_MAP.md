@@ -19,11 +19,11 @@ Normalized Data
 ↓
 Daily State Layers
 ↓
-Load Model + Recovery Model
+LoadState + RecoveryState
 ↓
-Readiness Engine
+Readiness
 ↓
-Probability Layer
+Notification
 ↓
 Recommendation / Ride Briefing
 ↓
@@ -77,9 +77,14 @@ Feedback
 - `load_state_daily_v2`
 - `health_recovery_daily`
 - `readiness_daily`
-- fitness / fast fatigue / slow fatigue
+- fitness / fast fatigue / slow fatigue / freshness
+- recovery score + recovery breakdown
 - readiness score
 - good day probability
+
+Цепочка:
+
+- Data -> LoadState -> RecoveryState -> Readiness -> Notification
 
 ---
 
@@ -93,6 +98,7 @@ Feedback
 - probability layer
 - status text
 - explanation payload
+- Telegram daily notification
 
 Следующий слой:
 
@@ -153,7 +159,7 @@ Human Engine — это не один алгоритм.
 
 Это цепочка:
 
-> данные -> состояние -> readiness -> decision
+> данные -> LoadState -> RecoveryState -> Readiness -> Notification / decision
 
 Если система дает неправильный результат, ошибка находится в одном из слоев:
 
@@ -162,6 +168,7 @@ Human Engine — это не один алгоритм.
 - модель нагрузки
 - модель восстановления
 - readiness logic
+- notification formatting / interpretation
 - decision mapping
 
 ---
