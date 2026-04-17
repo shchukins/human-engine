@@ -118,14 +118,20 @@ Endpoint:
 
 `POST /api/v1/healthkit/full-sync/{user_id}`
 
+Статус:
+
+- full-sync теперь является self-sufficient orchestration endpoint
+- current state после одного full-sync считается end-to-end на backend
+
 Flow:
 
 1. raw ingest в `healthkit_ingest_raw`
 2. latest raw -> normalized health tables
 3. сбор affected dates
 4. recompute `health_recovery_daily`
-5. recompute `readiness_daily`
-6. response обратно в клиент
+5. recompute `load_state_daily_v2` минимум до max affected date
+6. recompute `readiness_daily`
+7. агрегированный response обратно в клиент
 
 ### 3.2 Load model v2 recompute
 
@@ -215,11 +221,13 @@ good_day_probability = readiness_score / 100
 ## 5. Что уже работает end-to-end
 
 - iOS приложение отправляет HealthKit payload
-- backend принимает `full-sync`
+- backend принимает `full-sync` как self-sufficient orchestration endpoint
 - данные попадают в raw таблицу
 - latest raw раскладывается в normalized health tables
 - пересчитывается `health_recovery_daily`
+- current state дотягивается на backend через `load_state_daily_v2`
 - пересчитывается `readiness_daily`
+- `readiness_daily.explanation_json` содержит recovery breakdown
 - результат возвращается в iOS через public API
 
 Публичный API уже проксируется через VPS / Caddy по пути `/api/*`.
