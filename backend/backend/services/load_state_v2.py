@@ -23,34 +23,32 @@ def recompute_load_state_daily_v2(user_id: str) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                with bounds as (
+                with source_dates as (
+                    select date
+                    from daily_training_load
+                    where user_id = %s
+
+                    union
+
+                    select date
+                    from health_recovery_daily
+                    where user_id = %s
+                ),
+                bounds as (
                     select
-                        coalesce(t.min_date, r.min_recovery_date) as min_date,
-                        greatest(
-                            coalesce(t.max_training_date, r.max_recovery_date),
-                            coalesce(r.max_recovery_date, t.max_training_date)
-                        ) as max_date
-                    from (
-                        select
-                            min(date) as min_date,
-                            max(date) as max_training_date
-                        from daily_training_load
-                        where user_id = %s
-                    ) t
-                    cross join (
-                        select
-                            min(date) as min_recovery_date,
-                            max(date) as max_recovery_date
-                        from health_recovery_daily
-                        where user_id = %s
-                    ) r
+                        min(date) as min_date,
+                        max(date) as max_date
+                    from source_dates
                 ),
                 calendar as (
                     select generate_series(
-                        (select min_date from bounds),
-                        (select max_date from bounds),
+                        b.min_date,
+                        b.max_date,
                         interval '1 day'
                     )::date as date
+                    from bounds b
+                    where b.min_date is not null
+                      and b.max_date is not null
                 )
                 select
                     c.date,

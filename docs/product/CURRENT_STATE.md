@@ -106,6 +106,7 @@ Pipeline:
 - readiness хранится как отдельный daily storage layer
 - readiness не равен `freshness`
 - readiness объединяет load contour и recovery contour
+- на последних health dates readiness считается из двух контуров, а не fallback-only от recovery
 - `readiness_daily.explanation_json` теперь включает recovery breakdown из `health_recovery_daily.recovery_explanation_json`
 
 ---
@@ -142,6 +143,7 @@ Endpoint:
 Особенности:
 
 - непрерывная календарная ось
+- `load_state_daily_v2` строится до latest health/recovery date
 - `tss = 0` в дни без тренировок
 - fast + slow fatigue
 - `fatigue_total` как weighted mixture
@@ -225,8 +227,8 @@ good_day_probability = readiness_score / 100
 - данные попадают в raw таблицу
 - latest raw раскладывается в normalized health tables
 - пересчитывается `health_recovery_daily`
-- current state дотягивается на backend через `load_state_daily_v2`
-- пересчитывается `readiness_daily`
+- `load_state_daily_v2` дотягивается до latest health/recovery date
+- на последних датах `readiness_daily` считается из load contour + recovery contour
 - `readiness_daily.explanation_json` содержит recovery breakdown
 - результат возвращается в iOS через public API
 
