@@ -24,25 +24,15 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    headerSection
-                    actionsSection
-                    permissionsSection
-                    payloadSummarySection
-                    payloadPreviewSection
-                    syncStateSection
-                    weightSection
-                    restingHRSection
-                    hrvSection
-                    sleepNightAggregatesSection
-                    sleepSamplesSection
+                VStack(alignment: .leading, spacing: 24) {
+                    readinessCard
                 }
                 .padding()
             }
-            .navigationTitle("HealthKit")
+            .navigationTitle("Today")
             .onAppear {
                 viewModel.reloadSyncState()
-                viewModel.refreshStatuses()
+                viewModel.loadTodayReadiness()
 
                 if !observersConfigured {
                     HealthKitService.shared.enableObservers()
@@ -55,236 +45,107 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Main screen
 
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Human Engine")
-                .font(.largeTitle)
-                .bold()
+    private var readinessCard: some View {
+        Group {
+            if let readiness = viewModel.todayReadiness {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Today")
+                                .font(.headline)
 
-            Text("HealthKit integration MVP")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-        }
-    }
+                            Text(readiness.statusText ?? "No status")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
 
-    private var actionsSection: some View {
-        GroupBox("Authorization & Sync") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Status: \(viewModel.statusMessage)")
+                        Spacer()
 
-                if viewModel.isSyncInProgress {
-                    ProgressView("Sync in progress...")
+                        Text(format(readiness.readinessScore))
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundStyle(readinessColor(readiness.readinessScore))
+                    }
+
+                    Text("Good day probability \(formatPercent(readiness.goodDayProbability))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        metricTile(
+                            title: "Freshness",
+                            value: freshnessText(from: readiness.explanation?.freshness)
+                        )
+
+                        metricTile(
+                            title: "Recovery",
+                            value: format(readiness.explanation?.recoveryScoreSimple)
+                        )
+                    }
+
+                    if let recovery = readiness.explanation?.recoveryExplanation {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Recovery breakdown")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+
+                            scoreRow(title: "Sleep", score: recovery.sleepScore)
+                            scoreRow(title: "HRV", score: recovery.hrvScore)
+                            scoreRow(title: "Resting HR", score: recovery.rhrScore)
+                        }
+                    }
+
+                    if readiness.explanation?.freshness == nil {
+                        Text("Based only on recovery data")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding()
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(.separator), lineWidth: 1)
+                )
+            } else if let error = viewModel.readinessErrorMessage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Today")
+                        .font(.headline)
 
-                Button("Request permissions") {
-                    viewModel.requestPermissions()
+                    Text("Failed to load readiness")
+                        .font(.subheadline)
+
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Refresh statuses") {
-                    viewModel.refreshStatuses()
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Read sample data") {
-                    readSampleData()
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Build JSON payload") {
-                    buildPayloadPreview()
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Reset sync state") {
-                    resetSyncState()
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Full sync") {
-                    performFullSync()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isSyncInProgress)
-
-                Button("Incremental sync") {
-                    performIncrementalSync()
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSyncInProgress)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var permissionsSection: some View {
-        PermissionsSectionView(
-            authorizationItems: viewModel.authorizationItems
-        )
-    }
-
-    private var payloadSummarySection: some View {
-        GroupBox("Payload summary") {
-            if viewModel.payloadSummary.isEmpty {
-                Text("No summary yet")
-                    .foregroundStyle(.secondary)
+                .padding()
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(.separator), lineWidth: 1)
+                )
             } else {
-                Text(viewModel.payloadSummary)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Today")
+                        .font(.headline)
+
+                    Text("No readiness data yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(.separator), lineWidth: 1)
+                )
             }
         }
-    }
-
-    private var payloadPreviewSection: some View {
-        PayloadPreviewSectionView(
-            payloadPreview: viewModel.payloadPreview
-        )
-    }
-
-    private var syncStateSection: some View {
-        GroupBox("Sync state") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Last successful sync: \(viewModel.syncState.lastSuccessfulSyncAt.map(DateFormatters.shortDateTime) ?? "None")")
-                Text("Last payload generated: \(viewModel.syncState.lastPayloadGeneratedAt.map(DateFormatters.shortDateTime) ?? "None")")
-                Text("Last sent item count: \(viewModel.syncState.lastSentItemCount)")
-                Text("Last sync mode: \(viewModel.syncState.lastSyncMode?.rawValue ?? "None")")
-                Text("Last error: \(viewModel.syncState.lastErrorMessage ?? "None")")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var weightSection: some View {
-        WeightSectionView(
-            samples: viewModel.weightSamples,
-            formatDate: DateFormatters.shortDateTime
-        )
-    }
-
-    private var restingHRSection: some View {
-        RestingHRSectionView(
-            samples: viewModel.restingHRSamples,
-            formatDate: { DateFormatters.shortDateTime($0) }
-        )
-    }
-
-    private var hrvSection: some View {
-        HRVSectionView(
-            samples: viewModel.hrvSamples,
-            formatDate: { DateFormatters.shortDateTime($0) }
-        )
-    }
-
-    private var sleepNightAggregatesSection: some View {
-        SleepNightAggregatesSectionView(
-            nights: viewModel.sleepNightAggregates,
-            formatDate: { DateFormatters.shortDateTime($0) },
-            formatDateOnly: { DateFormatters.mediumDate($0) }
-        )
-    }
-
-    private var sleepSamplesSection: some View {
-        SleepSamplesSectionView(
-            samples: viewModel.sleepSamples,
-            formatDate: { DateFormatters.shortDateTime($0) }
-        )
-    }
-
-    // MARK: - Manual sample reading
-
-    /// Ручное чтение примеров данных из HealthKit.
-    /// Используется для быстрой визуальной проверки интеграции.
-    private func readSampleData() {
-        viewModel.readSampleData { result in
-            switch result {
-            case .success(let data):
-                viewModel.weightSamples = data.weightSamples
-                viewModel.restingHRSamples = data.restingHRSamples
-                viewModel.hrvSamples = data.hrvSamples
-                viewModel.sleepSamples = data.sleepSamples
-                viewModel.sleepNightAggregates = data.sleepNightAggregates
-
-            case .failure:
-                // Ошибка уже обработана внутри viewModel.
-                break
-            }
-        }
-    }
-
-    // MARK: - Sync actions
-
-    /// Полный sync:
-    /// перечитывает данные, строит полный payload и отправляет его на backend.
-    private func performFullSync() {
-        viewModel.performFullSync { result in
-            switch result {
-            case .success(let data):
-                viewModel.weightSamples = data.weightSamples
-                viewModel.restingHRSamples = data.restingHRSamples
-                viewModel.hrvSamples = data.hrvSamples
-                viewModel.sleepSamples = data.sleepSamples
-                viewModel.sleepNightAggregates = data.sleepNightAggregates
-
-                viewModel.sendPayload(data.payload, mode: .full) {
-                    viewModel.isSyncInProgress = false
-                }
-
-            case .failure:
-                // Ошибка уже обработана внутри viewModel.
-                break
-            }
-        }
-    }
-
-    /// Incremental sync:
-    /// использует anchors и отправляет только delta payload.
-    private func performIncrementalSync() {
-        viewModel.performIncrementalSync { result in
-            switch result {
-            case .success(let data):
-                guard let payload = data.payload else {
-                    return
-                }
-
-                viewModel.newHRVSamples = data.newHRVSamples
-                viewModel.newRestingHRSamples = data.newRestingHRSamples
-                viewModel.newSleepNightAggregates = data.newSleepNightAggregates
-
-                if !data.newHRVSamples.isEmpty {
-                    viewModel.hrvSamples = data.newHRVSamples
-                }
-
-                if !data.newRestingHRSamples.isEmpty {
-                    viewModel.restingHRSamples = data.newRestingHRSamples
-                }
-
-                if !data.newSleepNightAggregates.isEmpty {
-                    viewModel.sleepNightAggregates = data.newSleepNightAggregates
-                }
-
-                viewModel.sendPayload(payload, mode: .incremental) {
-                    viewModel.isSyncInProgress = false
-                }
-
-            case .failure:
-                // Ошибка уже обработана внутри viewModel.
-                break
-            }
-        }
-    }
-
-    /// Сбрасывает локальное sync state.
-    private func resetSyncState() {
-        viewModel.resetSyncState()
     }
 
     // MARK: - Auto sync / observers
@@ -335,19 +196,45 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
     }
 
-    // MARK: - Helpers
+    // MARK: - Sync actions
 
-    private func buildPayloadPreview() {
-        let payload = HealthKitService.shared.buildHealthSyncPayload(
-            sleepAggregates: viewModel.sleepNightAggregates,
-            restingHRSamples: viewModel.restingHRSamples,
-            hrvSamples: viewModel.hrvSamples,
-            weightSamples: viewModel.weightSamples
-        )
+    /// Incremental sync:
+    /// использует anchors и отправляет только delta payload.
+    private func performIncrementalSync() {
+        viewModel.performIncrementalSync { result in
+            switch result {
+            case .success(let data):
+                guard let payload = data.payload else {
+                    return
+                }
 
-        viewModel.buildPayloadPreview(from: payload)
+                viewModel.newHRVSamples = data.newHRVSamples
+                viewModel.newRestingHRSamples = data.newRestingHRSamples
+                viewModel.newSleepNightAggregates = data.newSleepNightAggregates
+
+                if !data.newHRVSamples.isEmpty {
+                    viewModel.hrvSamples = data.newHRVSamples
+                }
+
+                if !data.newRestingHRSamples.isEmpty {
+                    viewModel.restingHRSamples = data.newRestingHRSamples
+                }
+
+                if !data.newSleepNightAggregates.isEmpty {
+                    viewModel.sleepNightAggregates = data.newSleepNightAggregates
+                }
+
+                viewModel.sendPayload(payload, mode: .incremental) {
+                    viewModel.isSyncInProgress = false
+                    viewModel.loadTodayReadiness()
+                }
+
+            case .failure:
+                break
+            }
+        }
     }
-    
+
     private func performInitialSync() {
         viewModel.performInitialSyncIfNeeded { result in
             switch result {
@@ -368,11 +255,81 @@ struct ContentView: View {
 
                 viewModel.sendPayload(payload, mode: .incremental) {
                     viewModel.isSyncInProgress = false
+                    viewModel.loadTodayReadiness()
                 }
 
             case .failure:
                 break
             }
+        }
+    }
+
+    // MARK: - Reusable blocks
+
+    @ViewBuilder
+    private func metricTile(title: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func scoreRow(title: String, score: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.subheadline)
+
+                Spacer()
+
+                Text(format(score))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(value: (score ?? 0) / 100.0)
+                .tint(readinessColor(score))
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func format(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        return String(format: "%.1f", value)
+    }
+
+    private func formatPercent(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        return String(format: "%.1f%%", value * 100.0)
+    }
+
+    private func freshnessText(from value: Double?) -> String {
+        guard let value else { return "No load data" }
+        return String(format: "%.1f", value)
+    }
+
+    private func readinessColor(_ score: Double?) -> Color {
+        guard let score else { return .gray }
+
+        switch score {
+        case ..<40:
+            return .red
+        case 40..<60:
+            return .orange
+        case 60..<75:
+            return .yellow
+        default:
+            return .green
         }
     }
 }

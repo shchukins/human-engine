@@ -86,6 +86,57 @@ final class APIClient {
             }
         }.resume()
     }
+    
+    func fetchReadiness(
+        userID: String,
+        date: String,
+        completion: @escaping (Result<ReadinessDailyResponse, Error>) -> Void
+    ) {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("model")
+            .appendingPathComponent("readiness-daily")
+            .appendingPathComponent(userID)
+            .appendingPathComponent(date)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    completion(.failure(APIError.invalidResponse))
+                    return
+                }
+
+                guard let data else {
+                    completion(.failure(APIError.emptyResponseBody))
+                    return
+                }
+
+                if (200...299).contains(httpResponse.statusCode) {
+                    do {
+                        let decoder = JSONDecoder()
+                        decoder.keyDecodingStrategy = .convertFromSnakeCase
+                        let result = try decoder.decode(ReadinessDailyResponse.self, from: data)
+                        completion(.success(result))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                } else {
+                    let body = String(data: data, encoding: .utf8) ?? "n/a"
+                    completion(.failure(APIError.serverError(code: httpResponse.statusCode, body: body)))
+                }
+            }
+        }.resume()
+    }
 }
 
 enum APIError: LocalizedError {
