@@ -7,23 +7,41 @@
 
 import Foundation
 
+struct HealthIngestAndProcessResponse: Decodable {
+    let ok: Bool
+    let userId: String
+    let affectedDates: [String]
+    let sleepNightsCount: Int
+    let restingHrCount: Int
+    let hrvCount: Int
+    let latestWeightIncluded: Bool
+    let recoveryDaysRecomputed: Int
+    let readinessDaysRecomputed: Int
+}
+
 final class APIClient {
     static let shared = APIClient()
 
     private init() {}
 
-    // ВАЖНО: замени на свой реальный endpoint
     private let baseURL = URL(string: "https://api.shchlab.ru")!
 
-    func sendHealthPayload(_ payload: HealthSyncPayload, completion: @escaping (Result<Void, Error>) -> Void) {
-        let url = baseURL.appendingPathComponent("/api/v1/healthkit/ingest")
+    func sendHealthPayload(
+        _ payload: HealthSyncPayload,
+        userID: String,
+        completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
+    ) {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("healthkit")
+            .appendingPathComponent("full-sync")
+            .appendingPathComponent(userID)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        // временно без auth
-        // request.setValue("Bearer YOUR_TOKEN", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
 
         let encoder = JSONEncoder()
 
@@ -34,7 +52,7 @@ final class APIClient {
             return
         }
 
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error {
                     completion(.failure(error))
@@ -46,10 +64,75 @@ final class APIClient {
                     return
                 }
 
+                guard let data else {
+                    completion(.failure(APIError.emptyResponseBody))
+                    return
+                }
+
                 if (200...299).contains(httpResponse.statusCode) {
-                    completion(.success(()))
+                    do {
+                        let decoder = JSONDecoder()
+                        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+                        let result = try decoder.decode(HealthIngestAndProcessResponse.self, from: data)
+                        completion(.success(result))
+                    } catch {
+                        completion(.failure(error))
+                    }
                 } else {
-                    completion(.failure(APIError.serverError(code: httpResponse.statusCode)))
+                    let body = String(data: data, encoding: .utf8) ?? "n/a"
+                    completion(.failure(APIError.serverError(code: httpResponse.statusCode, body: body)))
+                }
+            }
+        }.resume()
+    }
+    
+    func fetchReadiness(
+        userID: String,
+        date: String,
+        completion: @escaping (Result<ReadinessDailyResponse, Error>) -> Void
+    ) {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("model")
+            .appendingPathComponent("readiness-daily")
+            .appendingPathComponent(userID)
+            .appendingPathComponent(date)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    completion(.failure(APIError.invalidResponse))
+                    return
+                }
+
+                guard let data else {
+                    completion(.failure(APIError.emptyResponseBody))
+                    return
+                }
+
+                if (200...299).contains(httpResponse.statusCode) {
+                    do {
+                        let decoder = JSONDecoder()
+                        decoder.keyDecodingStrategy = .convertFromSnakeCase
+                        let result = try decoder.decode(ReadinessDailyResponse.self, from: data)
+                        completion(.success(result))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                } else {
+                    let body = String(data: data, encoding: .utf8) ?? "n/a"
+                    completion(.failure(APIError.serverError(code: httpResponse.statusCode, body: body)))
                 }
             }
         }.resume()
@@ -58,14 +141,17 @@ final class APIClient {
 
 enum APIError: LocalizedError {
     case invalidResponse
-    case serverError(code: Int)
+    case emptyResponseBody
+    case serverError(code: Int, body: String)
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
             return "Invalid server response"
-        case .serverError(let code):
-            return "Server error: \(code)"
+        case .emptyResponseBody:
+            return "Empty server response body"
+        case .serverError(let code, let body):
+            return "Server error \(code): \(body)"
         }
     }
 }
