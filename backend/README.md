@@ -174,12 +174,14 @@ POST /api/v1/healthkit/full-sync/{user_id}
     -> process latest raw payload into normalized tables
     -> collect affected dates
     -> recompute health_recovery_daily for affected dates
+    -> recompute load_state_daily_v2 up to latest recovery/training date
     -> recompute readiness_daily for affected dates
 ```
 
 Важно:
 
 - recovery пересчитывается поверх normalized health tables
+- load_state_daily_v2 пересчитывается перед readiness, чтобы freshness был актуален
 - readiness пересчитывается как отдельный слой
 - public API уже работает end-to-end через VPS и Caddy
 

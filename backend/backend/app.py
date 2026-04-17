@@ -37,6 +37,7 @@ from backend.services.health_recovery_daily import recompute_health_recovery_dai
 from backend.services.load_state_v2 import recompute_load_state_daily_v2
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
 from backend.services.healthkit_pipeline import ingest_and_process_healthkit_payload
+from backend.services.readiness_query import get_readiness_daily_for_date
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
 
@@ -1228,3 +1229,11 @@ def full_sync_healthkit_payload_endpoint(user_id: str, payload: HealthSyncPayloa
             status_code=500,
             detail=f"failed to run healthkit full sync: {str(e)[:300]}",
         ) from e
+
+
+@app.get("/api/v1/model/readiness-daily/{user_id}/{target_date}")
+def get_readiness_daily_endpoint(user_id: str, target_date: str):
+    return get_readiness_daily_for_date(
+        user_id=user_id,
+        target_date=target_date,
+    )

@@ -6,6 +6,7 @@ from backend.schemas.healthkit import HealthSyncPayload
 from backend.services.health_recovery_daily import recompute_health_recovery_daily_for_date
 from backend.services.healthkit_ingest import save_healthkit_ingest_raw
 from backend.services.healthkit_processing import process_latest_healthkit_raw
+from backend.services.load_state_v2 import recompute_load_state_daily_v2
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
 
 
@@ -36,11 +37,12 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
 
     # 3. Determine affected dates from payload
     affected_dates = _collect_affected_dates(payload)
+    max_affected_date = affected_dates[-1] if affected_dates else None
 
     recovery_results = []
     readiness_results = []
 
-    # 4. Recompute recovery + readiness for all affected dates
+    # 4. Recompute recovery for all affected dates
     for target_date in affected_dates:
         recovery_result = recompute_health_recovery_daily_for_date(
             user_id=user_id,
@@ -48,6 +50,11 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
         )
         recovery_results.append(recovery_result)
 
+    # 5. Recompute load state after recovery so freshness is available to readiness.
+    load_result = recompute_load_state_daily_v2(user_id=user_id)
+
+    # 6. Recompute readiness for all affected dates
+    for target_date in affected_dates:
         readiness_result = recompute_readiness_daily_for_date(
             user_id=user_id,
             target_date=target_date,
@@ -58,11 +65,15 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
         "ok": True,
         "user_id": user_id,
         "affected_dates": affected_dates,
+        "max_affected_date": max_affected_date,
         "sleep_nights_count": len(payload.sleepNights),
         "resting_hr_count": len(payload.restingHeartRateDaily),
         "hrv_count": len(payload.hrvSamples),
         "latest_weight_included": payload.latestWeight is not None,
         "normalized": processing_result,
         "recovery_days_recomputed": len(recovery_results),
+        "load_recomputed": True,
+        "load_days_recomputed": load_result.get("days_processed"),
+        "load_last_date": load_result.get("last_date"),
         "readiness_days_recomputed": len(readiness_results),
     }
