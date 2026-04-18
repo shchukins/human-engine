@@ -1,0 +1,43 @@
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: human-engine-loki
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - /data/observability/loki:/loki
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: human-engine-promtail
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/promtail/promtail-config.yaml
+    depends_on:
+      - loki
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /data/observability/promtail:/var/lib/promtail
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: human-engine-grafana
+    restart: unless-stopped
+    depends_on:
+      - loki
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - /data/observability/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+

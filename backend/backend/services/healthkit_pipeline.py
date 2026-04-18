@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from backend.core.logging import log_event
 from backend.schemas.healthkit import HealthSyncPayload
 from backend.services.health_recovery_daily import recompute_health_recovery_daily_for_date
 from backend.services.healthkit_ingest import save_healthkit_ingest_raw
 from backend.services.healthkit_processing import process_latest_healthkit_raw
 from backend.services.load_state_v2 import recompute_load_state_daily_v2
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
+
+logger = logging.getLogger(__name__)
 
 
 def _collect_affected_dates(payload: HealthSyncPayload) -> list[str]:
@@ -60,6 +64,17 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
             target_date=target_date,
         )
         readiness_results.append(readiness_result)
+
+    log_event(
+        logger,
+        "healthkit_payload_processed",
+        user_id=user_id,
+        affected_dates_count=len(affected_dates),
+        sleep_count=len(payload.sleepNights),
+        hrv_count=len(payload.hrvSamples),
+        rhr_count=len(payload.restingHeartRateDaily),
+        readiness_days_recomputed=len(readiness_results),
+    )
 
     return {
         "ok": True,

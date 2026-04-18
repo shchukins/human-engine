@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
+import uuid
 from datetime import datetime
 from typing import Any
 
 import psycopg
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend.config import settings
+from backend.core.logging import configure_logging, log_event
 from backend.db import get_conn
 from backend.services.fitness_service import recompute_fitness_state
 from backend.services.ingest_service import process_one_strava_ingest_job
@@ -38,6 +42,9 @@ from backend.services.load_state_v2 import recompute_load_state_daily_v2
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
 from backend.services.healthkit_pipeline import ingest_and_process_healthkit_payload
 from backend.services.readiness_query import get_readiness_daily_for_date
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Human Engine API", version="0.1.0")
 
@@ -81,6 +88,106 @@ class AIRideBriefingData(BaseModel):
 class AIRideBriefingResponse(BaseModel):
     model: str
     data: AIRideBriefingData
+
+
+def _get_request_id(request: Request) -> str:
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        return request_id
+
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    return request_id
+
+
+def _extract_user_id(request: Request) -> str | None:
+    path_user_id = request.path_params.get("user_id")
+    if path_user_id:
+        return str(path_user_id)
+
+    header_user_id = request.headers.get("x-user-id")
+    if header_user_id:
+        return header_user_id
+
+    return None
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    started_at = time.perf_counter()
+    request_id = _get_request_id(request)
+    user_id = _extract_user_id(request)
+    request.state.user_id = user_id
+
+    log_event(
+        logger,
+        "api_request_started",
+        method=request.method,
+        path=request.url.path,
+        request_id=request_id,
+        user_id=user_id,
+    )
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event(
+            logger,
+            "error",
+            level=logging.ERROR,
+            error_type=type(exc).__name__,
+            error=str(exc),
+            context="request_exception",
+            method=request.method,
+            path=request.url.path,
+            request_id=request_id,
+            user_id=_extract_user_id(request),
+            duration_ms=duration_ms,
+        )
+        raise
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    user_id = _extract_user_id(request)
+    request.state.user_id = user_id
+    response.headers["X-Request-ID"] = request_id
+
+    log_event(
+        logger,
+        "api_request_finished",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        request_id=request_id,
+        user_id=user_id,
+    )
+
+    if response.status_code >= 400:
+        log_event(
+            logger,
+            "error",
+            level=logging.ERROR,
+            error_type="HTTPError",
+            error=f"request failed with status {response.status_code}",
+            context="http_response",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            request_id=request_id,
+            user_id=user_id,
+        )
+
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"internal server error: {type(exc).__name__}"},
+        headers={"X-Request-ID": _get_request_id(request)},
+    )
 
 
 @app.get("/healthz")
@@ -267,6 +374,17 @@ async def strava_webhook_receive(request: Request):
     if not object_type or object_id is None or owner_id is None or event_time_unix is None:
         raise HTTPException(status_code=400, detail="invalid strava webhook payload")
 
+    log_event(
+        logger,
+        "strava_webhook_received",
+        request_id=_get_request_id(request),
+        owner_id=owner_id,
+        object_id=object_id,
+        object_type=object_type,
+        aspect_type=aspect_type,
+        subscription_id=subscription_id,
+    )
+
     dedupe_key = (
         f"strava:{subscription_id}:{owner_id}:"
         f"{object_type}:{object_id}:{aspect_type}:{event_time_unix}"
@@ -356,6 +474,21 @@ async def strava_webhook_receive(request: Request):
                                 f"webhook_{aspect_type}",
                             ),
                         )
+                        job_row = cur.fetchone()
+                        job_id = job_row[0] if job_row else None
+
+                        if job_id is not None:
+                            log_event(
+                                logger,
+                                "strava_ingest_job_created",
+                                request_id=_get_request_id(request),
+                                user_id=user_id,
+                                job_id=job_id,
+                                owner_id=owner_id,
+                                activity_id=object_id,
+                                aspect_type=aspect_type,
+                                webhook_event_id=webhook_event_id,
+                            )
 
                 conn.commit()
 
@@ -1217,12 +1350,32 @@ def ingest_and_process_healthkit_payload_endpoint(user_id: str, payload: HealthS
 
 @app.post("/api/v1/healthkit/full-sync/{user_id}")
 def full_sync_healthkit_payload_endpoint(user_id: str, payload: HealthSyncPayload):
+    started_at = time.perf_counter()
+    counts = {
+        "sleep": len(payload.sleepNights),
+        "hrv": len(payload.hrvSamples),
+        "rhr": len(payload.restingHeartRateDaily),
+    }
+
+    log_event(
+        logger,
+        "healthkit_full_sync_started",
+        user_id=user_id,
+        counts=counts,
+    )
+
     try:
         result = ingest_and_process_healthkit_payload(
             user_id=user_id,
             payload=payload,
         )
-        print("FULL_SYNC_RESULT:", result)
+        log_event(
+            logger,
+            "healthkit_full_sync_finished",
+            user_id=user_id,
+            counts=counts,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+        )
         return result
     except Exception as e:
         raise HTTPException(

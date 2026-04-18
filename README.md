@@ -121,6 +121,17 @@ Home server
 Backend + DB
 ```
 
+## Observability
+
+Human Engine includes a minimal observability layer for backend logs:
+
+- structured JSON logging in the FastAPI backend
+- Promtail pipeline with docker log parsing and JSON extraction
+- Loki for log storage
+- Grafana dashboard for API requests, HealthKit sync, readiness recompute, errors, and pipeline trace
+
+See: [docs/architecture/OBSERVABILITY.md](docs/architecture/OBSERVABILITY.md)
+
 ## Architecture Principles
 
 - Simplicity over complexity
@@ -146,6 +157,7 @@ docs/           system documentation
 
 - [backend/README.md](backend/README.md)
 - [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
+- [docs/architecture/OBSERVABILITY.md](docs/architecture/OBSERVABILITY.md)
 - [backend/ROADMAP.md](backend/ROADMAP.md)
 - [docs/models/model_v2_architecture.md](docs/models/model_v2_architecture.md)
 - [docs/product/CURRENT_STATE.md](docs/product/CURRENT_STATE.md)
