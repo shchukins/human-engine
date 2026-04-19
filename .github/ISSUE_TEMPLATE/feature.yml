@@ -1,0 +1,19 @@
+name: Feature
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: [Critical, High, Medium, Low]
