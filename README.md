@@ -1,8 +1,22 @@
 # Human Engine
 
-> A deterministic system for analyzing training load, estimating athlete state, and supporting training decisions.
->
-> `signal -> load state + recovery state -> readiness -> decision`
+<p align="center">
+  <img src="https://img.shields.io/badge/status-experimental-blue" />
+  <img src="https://img.shields.io/badge/license-MIT-yellow" />
+  <img src="https://img.shields.io/badge/core-deterministic-green" />
+  <img src="https://img.shields.io/badge/backend-FastAPI-009688" />
+  <img src="https://img.shields.io/badge/database-PostgreSQL-336791" />
+  <img src="https://img.shields.io/badge/iOS-HealthKit-black" />
+  <img src="https://img.shields.io/badge/integration-Strava-FC4C02" />
+</p>
+
+<p align="center">
+  A system for analyzing training load, recovery, readiness, and decision support.
+</p>
+
+<p align="center">
+  <code>signal → load state + recovery state → readiness → decision</code>
+</p>
 
 ## Core Idea
 
