@@ -13,7 +13,7 @@ jobs:
             const title = context.payload.issue.title.toLowerCase();
             const labels = [];
 
-            if (title.includes('[Epic]')) labels.push('type:epic');
+            if (title.includes('[EPIC]')) labels.push('type:epic');
             if (title.includes('[Feature]')) labels.push('type:feature');
             if (title.includes('[Research]')) labels.push('type:research');
 
