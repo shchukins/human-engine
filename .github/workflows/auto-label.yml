@@ -13,9 +13,9 @@ jobs:
             const title = context.payload.issue.title.toLowerCase();
             const labels = [];
 
-            if (title.includes('[epic]')) labels.push('Type: Epic');
-            if (title.includes('[feature]')) labels.push('Type: Feature');
-            if (title.includes('[research]')) labels.push('Type: Research');
+            if (title.includes('[Epic]')) labels.push('type:epic');
+            if (title.includes('[Feature]')) labels.push('type:feature');
+            if (title.includes('[Research]')) labels.push('type:research');
 
             if (labels.length > 0) {
               github.rest.issues.addLabels({
