@@ -238,6 +238,9 @@ def test_fresh_healthkit_sync_triggers_morning_briefing(monkeypatch):
                 deepMinutes=100.0,
             )
         ],
+        restingHeartRateDaily=[
+            RestingHRDailyDTO(date=date(2026, 4, 16), bpm=52.0)
+        ],
     )
     calls = []
 
@@ -262,7 +265,8 @@ def test_fresh_healthkit_sync_triggers_morning_briefing(monkeypatch):
     assert calls == [
         {
             "user_id": "user-1",
-            "for_date": date(2026, 4, 17),
+            "notification_date": date(2026, 4, 17),
+            "recovery_date": date(2026, 4, 17),
             "data_freshness": {
                 "state": "fresh",
                 "recovery_date": "2026-04-17",
@@ -274,18 +278,93 @@ def test_fresh_healthkit_sync_triggers_morning_briefing(monkeypatch):
     ]
 
 
-def test_historical_healthkit_sync_does_not_trigger_morning_briefing(monkeypatch):
+def test_previous_day_hrv_and_rhr_sync_triggers_one_briefing_claimed_for_today(
+    monkeypatch,
+):
     payload = HealthSyncPayload(
-        generatedAt=datetime(2026, 4, 17, 8, 0, 0),
+        generatedAt=datetime(2026, 7, 25, 8, 0, 0),
         timezone="Europe/Moscow",
         restingHeartRateDaily=[
-            RestingHRDailyDTO(date=date(2026, 4, 16), bpm=52.0)
+            RestingHRDailyDTO(date=date(2026, 7, 24), bpm=52.0)
+        ],
+        hrvSamples=[
+            HRVSampleDTO(
+                startAt=datetime(2026, 7, 24, 6, 30, 0),
+                valueMs=64.0,
+            )
+        ],
+    )
+    sent_calls = []
+    claimed_dates = set()
+
+    monkeypatch.setattr(healthkit_pipeline.settings, "daily_readiness_user_id", "user-1")
+    monkeypatch.setattr(healthkit_pipeline, "_local_today", lambda timezone_name: "2026-07-25")
+    monkeypatch.setattr(
+        healthkit_pipeline,
+        "_successful_sync_at",
+        lambda: datetime(2026, 7, 25, 5, 0, tzinfo=timezone.utc),
+    )
+
+    def fake_send_daily_readiness(**kwargs):
+        notification_date = kwargs["notification_date"]
+        if notification_date in claimed_dates:
+            return False
+        claimed_dates.add(notification_date)
+        sent_calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        healthkit_pipeline,
+        "send_daily_readiness",
+        fake_send_daily_readiness,
+    )
+
+    # Repeated syncs share the same notification-date claim.
+    healthkit_pipeline._send_fresh_morning_briefing(
+        user_id="user-1",
+        payload=payload,
+    )
+    healthkit_pipeline._send_fresh_morning_briefing(
+        user_id="user-1",
+        payload=payload,
+    )
+
+    # The scheduled fallback uses that same daily claim and cannot send a duplicate.
+    fake_send_daily_readiness(
+        user_id="user-1",
+        notification_date=date(2026, 7, 25),
+        data_freshness={"state": "fresh", "recovery_date": "2026-07-24"},
+    )
+
+    assert claimed_dates == {date(2026, 7, 25)}
+    assert sent_calls == [
+        {
+            "user_id": "user-1",
+            "notification_date": date(2026, 7, 25),
+            "recovery_date": date(2026, 7, 24),
+            "data_freshness": {
+                "state": "fresh",
+                "recovery_date": "2026-07-24",
+                "last_successful_sync_at": datetime(
+                    2026, 7, 25, 5, 0, tzinfo=timezone.utc
+                ),
+            },
+        }
+    ]
+
+
+def test_recovery_data_older_than_previous_day_does_not_trigger_briefing(monkeypatch):
+    payload = HealthSyncPayload(
+        generatedAt=datetime(2026, 7, 25, 8, 0, 0),
+        timezone="Europe/Moscow",
+        restingHeartRateDaily=[
+            RestingHRDailyDTO(date=date(2026, 7, 23), bpm=52.0)
         ],
     )
     calls = []
 
     monkeypatch.setattr(healthkit_pipeline.settings, "daily_readiness_user_id", "user-1")
-    monkeypatch.setattr(healthkit_pipeline, "_local_today", lambda timezone_name: "2026-04-17")
+    monkeypatch.setattr(healthkit_pipeline, "_local_today", lambda timezone_name: "2026-07-25")
     monkeypatch.setattr(
         healthkit_pipeline,
         "send_daily_readiness",

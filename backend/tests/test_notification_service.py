@@ -261,7 +261,8 @@ def test_build_readiness_comment_negative_freshness():
 
 def test_build_readiness_briefing_message_uses_model_v2_fields():
     message = build_readiness_briefing_message(
-        target_date="2026-04-17",
+        notification_date="2026-04-17",
+        recovery_date="2026-04-17",
         readiness_score=56.5,
         status_text="Нормальная готовность",
         good_day_probability=0.565,
@@ -276,7 +277,8 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
 
     assert message == (
         "Human Engine · Today\n\n"
-        "Дата: 2026-04-17\n"
+        "Дата briefing: 2026-04-17\n"
+        "Дата recovery-данных: 2026-04-17\n"
         "Данные HealthKit: отсутствуют\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
@@ -360,7 +362,8 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
 
     assert message == (
         "Human Engine · Today\n\n"
-        "Дата: 2026-04-17\n"
+        "Дата briefing: 2026-04-17\n"
+        "Дата recovery-данных: 2026-04-17\n"
         "Данные HealthKit: свежие\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
@@ -381,7 +384,8 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
 
 def test_build_readiness_briefing_message_marks_stale_data():
     message = build_readiness_briefing_message(
-        target_date="2026-04-16",
+        notification_date="2026-04-17",
+        recovery_date="2026-04-16",
         readiness_score=50.0,
         status_text="Нормальная готовность",
         good_day_probability=0.5,
@@ -415,7 +419,8 @@ class _FakeFreshnessCursor:
     ("recovery_row", "expected_state"),
     [
         ((date(2026, 4, 17), "recovery-updated-at"), "fresh"),
-        ((date(2026, 4, 16), "recovery-updated-at"), "stale"),
+        ((date(2026, 4, 16), "recovery-updated-at"), "fresh"),
+        ((date(2026, 4, 15), "recovery-updated-at"), "stale"),
         (None, "missing"),
     ],
 )
@@ -458,7 +463,7 @@ def test_send_daily_readiness_claim_prevents_duplicate(monkeypatch):
 
     sent = send_daily_readiness(
         "user-1",
-        for_date=date(2026, 4, 17),
+        notification_date=date(2026, 4, 17),
         data_freshness={"state": "fresh"},
     )
 
@@ -489,14 +494,14 @@ def test_send_daily_readiness_releases_claim_when_delivery_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="telegram unavailable"):
         send_daily_readiness(
             "user-1",
-            for_date=date(2026, 4, 17),
+            notification_date=date(2026, 4, 17),
             data_freshness={"state": "fresh"},
         )
 
     assert released == [
         {
             "user_id": "user-1",
-            "for_date": date(2026, 4, 17),
+            "notification_date": date(2026, 4, 17),
         }
     ]
 
@@ -528,7 +533,7 @@ def test_send_daily_readiness_keeps_claim_after_successful_delivery(monkeypatch)
     with pytest.raises(RuntimeError, match="database unavailable"):
         send_daily_readiness(
             "user-1",
-            for_date=date(2026, 4, 17),
+            notification_date=date(2026, 4, 17),
             data_freshness={"state": "fresh"},
         )
 

@@ -1,6 +1,6 @@
 import math
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.db import get_conn
@@ -334,7 +334,8 @@ def build_readiness_comment(
 
 def build_readiness_briefing_message(
     *,
-    target_date: Any,
+    notification_date: Any,
+    recovery_date: Any,
     readiness_score: float | None,
     status_text: str | None,
     good_day_probability: float | None,
@@ -350,7 +351,8 @@ def build_readiness_briefing_message(
     lines = [
         "Human Engine · Today",
         "",
-        f"Дата: {target_date}",
+        f"Дата briefing: {notification_date}",
+        f"Дата recovery-данных: {recovery_date}",
         f"Данные HealthKit: {freshness_label}",
         "",
         f"Готовность: {_fmt(readiness_score, 1)}",
@@ -418,7 +420,11 @@ def get_healthkit_data_freshness(
         }
 
     recovery_date, recovery_updated_at = recovery_row
-    state = "fresh" if recovery_date == for_date else "stale"
+    state = (
+        "fresh"
+        if recovery_date >= for_date - timedelta(days=1)
+        else "stale"
+    )
     return {
         "state": state,
         "recovery_date": recovery_date,
@@ -627,16 +633,18 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
 def build_daily_readiness_message(
     user_id: str,
     *,
-    for_date: date | None = None,
+    notification_date: date | None = None,
+    recovery_date: date | None = None,
     data_freshness: dict[str, Any] | None = None,
 ) -> str:
+    target_recovery_date = recovery_date or notification_date
     with get_conn() as conn:
         with conn.cursor() as cur:
             readiness_date_filter = ""
             params: tuple[Any, ...] = (user_id,)
-            if for_date is not None:
+            if target_recovery_date is not None:
                 readiness_date_filter = "and date <= %s"
-                params = (user_id, for_date)
+                params = (user_id, target_recovery_date)
 
             cur.execute(
                 f"""
@@ -691,7 +699,8 @@ def build_daily_readiness_message(
                 )
 
                 return build_readiness_briefing_message(
-                    target_date=readiness_date,
+                    notification_date=notification_date or readiness_date,
+                    recovery_date=readiness_date,
                     readiness_score=score,
                     status_text=status_text,
                     good_day_probability=_float_or_none(good_day_probability),
@@ -817,7 +826,8 @@ def build_daily_readiness_message(
         "Human Engine",
         "",
         "📅 Daily Readiness Summary",
-        f"Дата: {date}",
+        f"Дата briefing: {notification_date or date}",
+        f"Дата recovery-данных: {recovery_date or date}",
         f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}",
         "",
         f"Fitness: {_fmt(fitness, 2)}",
@@ -848,7 +858,7 @@ def notify_training_processed(user_id: str, activity_id: int) -> None:
 
 def claim_daily_readiness(
     user_id: str,
-    for_date: date,
+    notification_date: date,
     *,
     data_freshness: dict[str, Any],
 ) -> bool:
@@ -873,7 +883,7 @@ def claim_daily_readiness(
                 """,
                 (
                     user_id,
-                    for_date,
+                    notification_date,
                     json.dumps(
                         {
                             "delivery_state": "claimed",
@@ -891,7 +901,7 @@ def claim_daily_readiness(
 
 def mark_daily_readiness_sent(
     user_id: str,
-    for_date: date,
+    notification_date: date,
     *,
     payload: str,
     data_freshness: dict[str, Any],
@@ -916,13 +926,13 @@ def mark_daily_readiness_sent(
                         default=str,
                     ),
                     user_id,
-                    for_date,
+                    notification_date,
                 ),
             )
             conn.commit()
 
 
-def release_daily_readiness_claim(user_id: str, for_date: date) -> None:
+def release_daily_readiness_claim(user_id: str, notification_date: date) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -933,29 +943,32 @@ def release_daily_readiness_claim(user_id: str, for_date: date) -> None:
                   and notification_date = %s
                   and payload_json->>'delivery_state' = 'claimed';
                 """,
-                (user_id, for_date),
+                (user_id, notification_date),
             )
             conn.commit()
 
 
 def send_daily_readiness(
     user_id: str,
-    for_date: date | None = None,
+    notification_date: date | None = None,
     *,
+    recovery_date: date | None = None,
     data_freshness: dict[str, Any] | None = None,
 ) -> bool:
-    if for_date is None:
-        for_date = datetime.now(timezone.utc).date()
+    if notification_date is None:
+        notification_date = datetime.now(timezone.utc).date()
 
     if data_freshness is None:
         data_freshness = get_healthkit_data_freshness(
             user_id=user_id,
-            for_date=for_date,
+            for_date=notification_date,
         )
+    if recovery_date is None and data_freshness.get("recovery_date") is not None:
+        recovery_date = date.fromisoformat(str(data_freshness["recovery_date"]))
 
     claimed = claim_daily_readiness(
         user_id=user_id,
-        for_date=for_date,
+        notification_date=notification_date,
         data_freshness=data_freshness,
     )
     if not claimed:
@@ -965,14 +978,15 @@ def send_daily_readiness(
     try:
         text = build_daily_readiness_message(
             user_id=user_id,
-            for_date=for_date,
+            notification_date=notification_date,
+            recovery_date=recovery_date,
             data_freshness=data_freshness,
         )
         send_telegram_message(text)
         delivered = True
         mark_daily_readiness_sent(
             user_id=user_id,
-            for_date=for_date,
+            notification_date=notification_date,
             payload=text,
             data_freshness=data_freshness,
         )
@@ -981,7 +995,10 @@ def send_daily_readiness(
         # the final payload failed: at-most-once delivery is more important than
         # retrying into a duplicate morning briefing.
         if not delivered:
-            release_daily_readiness_claim(user_id=user_id, for_date=for_date)
+            release_daily_readiness_claim(
+                user_id=user_id,
+                notification_date=notification_date,
+            )
         raise
 
     return True

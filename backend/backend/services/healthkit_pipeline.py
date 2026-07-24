@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -42,26 +42,38 @@ def _send_fresh_morning_briefing(
     user_id: str,
     payload: HealthSyncPayload,
 ) -> None:
-    today = _local_today(payload.timezone)
-    if user_id != settings.daily_readiness_user_id or today not in _recovery_dates(payload):
+    notification_date = date.fromisoformat(_local_today(payload.timezone))
+    eligible_recovery_dates = {
+        notification_date,
+        notification_date - timedelta(days=1),
+    }
+    affected_recovery_dates = {
+        date.fromisoformat(value) for value in _recovery_dates(payload)
+    }
+    eligible_affected_dates = affected_recovery_dates & eligible_recovery_dates
+
+    if user_id != settings.daily_readiness_user_id or not eligible_affected_dates:
         return
 
+    recovery_date = max(eligible_affected_dates)
     data_freshness = {
         "state": "fresh",
-        "recovery_date": today,
+        "recovery_date": recovery_date.isoformat(),
         "last_successful_sync_at": _successful_sync_at(),
     }
     try:
         sent = send_daily_readiness(
             user_id=user_id,
-            for_date=date.fromisoformat(today),
+            notification_date=notification_date,
+            recovery_date=recovery_date,
             data_freshness=data_freshness,
         )
         log_event(
             logger,
             "daily_readiness_fresh_sync_triggered",
             user_id=user_id,
-            target_date=today,
+            notification_date=notification_date.isoformat(),
+            recovery_date=recovery_date.isoformat(),
             sent=sent,
         )
     except Exception as error:
@@ -72,7 +84,8 @@ def _send_fresh_morning_briefing(
             "daily_readiness_fresh_sync_failed",
             level=logging.ERROR,
             user_id=user_id,
-            target_date=today,
+            notification_date=notification_date.isoformat(),
+            recovery_date=recovery_date.isoformat(),
             error_type=type(error).__name__,
             error=str(error),
         )
