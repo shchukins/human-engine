@@ -59,7 +59,7 @@ def test_maybe_send_daily_readiness_runs_as_fallback_at_configured_hour(monkeypa
     monkeypatch.setattr(
         worker,
         "send_daily_readiness",
-        lambda user_id, notification_date: calls.append(
+        lambda user_id, *, notification_date: calls.append(
             (user_id, notification_date)
         )
         or True,
@@ -79,7 +79,7 @@ def test_maybe_send_daily_readiness_skips_before_fallback_hour(monkeypatch):
     monkeypatch.setattr(
         worker,
         "send_daily_readiness",
-        lambda user_id, notification_date: calls.append(
+        lambda user_id, *, notification_date: calls.append(
             (user_id, notification_date)
         ),
     )

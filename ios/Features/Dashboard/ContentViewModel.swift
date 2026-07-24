@@ -150,6 +150,7 @@ final class ContentViewModel {
                 self.syncState.lastSentItemCount = itemCount
                 self.syncState.lastSyncMode = mode
                 self.syncState.hasPendingAutoSync = false
+                self.syncState.lastRecoveryPayloadFingerprint = RecoveryPayloadFingerprint.make(from: payload)
                 self.saveSyncState()
                 self.loadTodayReadiness()
 

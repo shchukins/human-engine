@@ -28,6 +28,10 @@ final class SyncService {
 
     private init() {}
 
+    func performRecoverySync(completion: @escaping (Result<FullSyncData, Error>) -> Void) {
+        performFullSync(completion: completion)
+    }
+
     func performFullSync(completion: @escaping (Result<FullSyncData, Error>) -> Void) {
         HealthKitService.shared.fetchLatestWeightSample { weightResult in
             switch weightResult {

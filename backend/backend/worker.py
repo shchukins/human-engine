@@ -23,7 +23,10 @@ def maybe_send_daily_readiness() -> None:
     if now.hour != DAILY_READINESS_FALLBACK_HOUR_UTC:
         return
 
-    sent = send_daily_readiness(DAILY_READINESS_USER_ID, for_date=now.date())
+    sent = send_daily_readiness(
+        DAILY_READINESS_USER_ID,
+        notification_date=now.date(),
+    )
 
     if sent:
         log_event(

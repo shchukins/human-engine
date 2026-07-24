@@ -232,6 +232,7 @@ final class DebugViewModel {
                 self.syncState.lastErrorMessage = nil
                 self.syncState.lastSentItemCount = itemCount
                 self.syncState.lastSyncMode = mode
+                self.syncState.lastRecoveryPayloadFingerprint = RecoveryPayloadFingerprint.make(from: payload)
                 self.saveSyncState()
 
             case .failure(let error):
