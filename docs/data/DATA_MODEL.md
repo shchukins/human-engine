@@ -396,6 +396,27 @@ Feedback types:
   }
 }
 ```
+
+### 5.10 `notification_log`
+
+Delivery-state журнал для at-most-once уведомлений.
+
+Ключевые поля:
+
+- `user_id`
+- `notification_type`
+- `notification_date`
+- `payload_json`
+- `created_at`
+
+Для `daily_readiness` уникальность
+`(user_id, notification_type, notification_date)` используется как atomic
+claim между HealthKit event trigger и fallback worker. `payload_json` хранит
+delivery state (`claimed` или `sent`), текст сообщения и freshness metadata.
+
+Этот журнал относится к delivery layer и не влияет на recovery, readiness или
+recommendation.
+
 ---
 
 ## 6. Relationships

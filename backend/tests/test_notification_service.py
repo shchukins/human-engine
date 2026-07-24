@@ -1,3 +1,7 @@
+from datetime import date
+
+import pytest
+
 from backend.services.notification_service import (
     build_briefing_text,
     build_daily_readiness_message,
@@ -11,8 +15,10 @@ from backend.services.notification_service import (
     describe_readiness,
     describe_freshness_trend,
     describe_training_impact,
+    get_healthkit_data_freshness,
     recommend_training,
     notify_training_processed,
+    send_daily_readiness,
 )
 
 def test_compute_readiness_score_none():
@@ -270,7 +276,8 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
 
     assert message == (
         "Human Engine · Today\n\n"
-        "Дата: 2026-04-17\n\n"
+        "Дата: 2026-04-17\n"
+        "Данные HealthKit: отсутствуют\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
@@ -346,11 +353,15 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
         lambda: fake_conn,
     )
 
-    message = build_daily_readiness_message(user_id="user-1")
+    message = build_daily_readiness_message(
+        user_id="user-1",
+        data_freshness={"state": "fresh"},
+    )
 
     assert message == (
         "Human Engine · Today\n\n"
-        "Дата: 2026-04-17\n\n"
+        "Дата: 2026-04-17\n"
+        "Данные HealthKit: свежие\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
@@ -366,6 +377,162 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
 
     assert len(fake_cursor.execute_calls) == 1
     assert "from readiness_daily" in fake_cursor.execute_calls[0][0]
+
+
+def test_build_readiness_briefing_message_marks_stale_data():
+    message = build_readiness_briefing_message(
+        target_date="2026-04-16",
+        readiness_score=50.0,
+        status_text="Нормальная готовность",
+        good_day_probability=0.5,
+        freshness=0.0,
+        recovery_score_simple=50.0,
+        recovery_explanation={},
+        data_freshness={"state": "stale"},
+    )
+
+    assert "Данные HealthKit: устаревшие" in message
+
+
+class _FakeFreshnessCursor:
+    def __init__(self, recovery_row, sync_row):
+        self.rows = iter((recovery_row, sync_row))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, query, params):
+        return None
+
+    def fetchone(self):
+        return next(self.rows)
+
+
+@pytest.mark.parametrize(
+    ("recovery_row", "expected_state"),
+    [
+        ((date(2026, 4, 17), "recovery-updated-at"), "fresh"),
+        ((date(2026, 4, 16), "recovery-updated-at"), "stale"),
+        (None, "missing"),
+    ],
+)
+def test_get_healthkit_data_freshness_classifies_recovery_date(
+    monkeypatch,
+    recovery_row,
+    expected_state,
+):
+    cursor = _FakeFreshnessCursor(
+        recovery_row=recovery_row,
+        sync_row=("sync-generated-at", "sync-received-at"),
+    )
+    connection = _FakeDailyReadinessConn(cursor)
+    monkeypatch.setattr(
+        "backend.services.notification_service.get_conn",
+        lambda: connection,
+    )
+
+    result = get_healthkit_data_freshness(
+        user_id="user-1",
+        for_date=date(2026, 4, 17),
+    )
+
+    assert result["state"] == expected_state
+    assert result["last_sync_generated_at"] == "sync-generated-at"
+    assert result["last_sync_received_at"] == "sync-received-at"
+
+
+def test_send_daily_readiness_claim_prevents_duplicate(monkeypatch):
+    telegram_calls = []
+
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: telegram_calls.append(text),
+    )
+
+    sent = send_daily_readiness(
+        "user-1",
+        for_date=date(2026, 4, 17),
+        data_freshness={"state": "fresh"},
+    )
+
+    assert sent is False
+    assert telegram_calls == []
+
+
+def test_send_daily_readiness_releases_claim_when_delivery_fails(monkeypatch):
+    released = []
+
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "briefing",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: (_ for _ in ()).throw(RuntimeError("telegram unavailable")),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.release_daily_readiness_claim",
+        lambda **kwargs: released.append(kwargs),
+    )
+
+    with pytest.raises(RuntimeError, match="telegram unavailable"):
+        send_daily_readiness(
+            "user-1",
+            for_date=date(2026, 4, 17),
+            data_freshness={"state": "fresh"},
+        )
+
+    assert released == [
+        {
+            "user_id": "user-1",
+            "for_date": date(2026, 4, 17),
+        }
+    ]
+
+
+def test_send_daily_readiness_keeps_claim_after_successful_delivery(monkeypatch):
+    released = []
+
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "briefing",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: None,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.mark_daily_readiness_sent",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.release_daily_readiness_claim",
+        lambda **kwargs: released.append(kwargs),
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        send_daily_readiness(
+            "user-1",
+            for_date=date(2026, 4, 17),
+            data_freshness={"state": "fresh"},
+        )
+
+    assert released == []
 
 
 def test_classify_workout_type_unknown():

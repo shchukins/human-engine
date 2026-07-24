@@ -389,6 +389,21 @@ Current gap for invariant coverage:
 
 Daily Telegram notification в текущем backend строится от `readiness_daily`, а не от legacy freshness-only summary.
 
+Delivery не меняет readiness formula. После успешного HealthKit pipeline backend
+отправляет briefing, если sync содержит recovery-сигнал за локальный текущий
+день. Fixed-time worker остается fallback-only.
+
+Notification metadata классифицирует HealthKit recovery input:
+
+- `fresh`: `health_recovery_daily.date` соответствует дате briefing
+- `stale`: доступен только recovery за более раннюю дату
+- `missing`: recovery row отсутствует
+
+Freshness выводится в пользовательском сообщении, а один atomic daily claim в
+`notification_log` предотвращает повторную отправку. Это delivery metadata; оно
+не сохраняется в `readiness_daily` и не влияет на score, probability или
+recommendation.
+
 Source of truth:
 
 - `readiness_score`

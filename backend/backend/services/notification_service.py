@@ -64,6 +64,15 @@ def _float_or_none(value: Any) -> float | None:
     return numeric
 
 
+def _healthkit_freshness_label(data_freshness: dict[str, Any] | None) -> str:
+    state = (data_freshness or {}).get("state", "missing")
+    return {
+        "fresh": "свежие",
+        "stale": "устаревшие",
+        "missing": "отсутствуют",
+    }.get(state, "неизвестно")
+
+
 def compute_readiness_score(freshness: float | None) -> int | None:
     if freshness is None:
         return None
@@ -333,13 +342,16 @@ def build_readiness_briefing_message(
     recovery_score_simple: float | None,
     recovery_explanation: dict[str, Any] | None,
     briefing: str | None = None,
+    data_freshness: dict[str, Any] | None = None,
 ) -> str:
     recovery_explanation = recovery_explanation or {}
+    freshness_label = _healthkit_freshness_label(data_freshness)
 
     lines = [
         "Human Engine · Today",
         "",
         f"Дата: {target_date}",
+        f"Данные HealthKit: {freshness_label}",
         "",
         f"Готовность: {_fmt(readiness_score, 1)}",
         f"Статус: {status_text or 'n/a'}",
@@ -363,6 +375,58 @@ def build_readiness_briefing_message(
     ]
 
     return "\n".join(lines)
+
+
+def get_healthkit_data_freshness(
+    user_id: str,
+    for_date: date,
+) -> dict[str, Any]:
+    """Classify persisted recovery inputs without changing readiness logic."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select date, updated_at
+                from health_recovery_daily
+                where user_id = %s
+                  and date <= %s
+                order by date desc
+                limit 1;
+                """,
+                (user_id, for_date),
+            )
+            recovery_row = cur.fetchone()
+
+            cur.execute(
+                """
+                select generated_at, received_at
+                from healthkit_ingest_raw
+                where user_id = %s
+                order by received_at desc, id desc
+                limit 1;
+                """,
+                (user_id,),
+            )
+            sync_row = cur.fetchone()
+
+    if recovery_row is None:
+        return {
+            "state": "missing",
+            "recovery_date": None,
+            "last_sync_generated_at": sync_row[0] if sync_row else None,
+            "last_sync_received_at": sync_row[1] if sync_row else None,
+        }
+
+    recovery_date, recovery_updated_at = recovery_row
+    state = "fresh" if recovery_date == for_date else "stale"
+    return {
+        "state": state,
+        "recovery_date": recovery_date,
+        "recovery_updated_at": recovery_updated_at,
+        "last_successful_sync_at": recovery_updated_at,
+        "last_sync_generated_at": sync_row[0] if sync_row else None,
+        "last_sync_received_at": sync_row[1] if sync_row else None,
+    }
 
 
 def describe_freshness_trend(values: list[float]) -> str:
@@ -560,11 +624,22 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
     return "\n".join(lines)
 
 
-def build_daily_readiness_message(user_id: str) -> str:
+def build_daily_readiness_message(
+    user_id: str,
+    *,
+    for_date: date | None = None,
+    data_freshness: dict[str, Any] | None = None,
+) -> str:
     with get_conn() as conn:
         with conn.cursor() as cur:
+            readiness_date_filter = ""
+            params: tuple[Any, ...] = (user_id,)
+            if for_date is not None:
+                readiness_date_filter = "and date <= %s"
+                params = (user_id, for_date)
+
             cur.execute(
-                """
+                f"""
                 select
                     date,
                     readiness_score,
@@ -574,10 +649,11 @@ def build_daily_readiness_message(user_id: str) -> str:
                 from readiness_daily
                 where user_id = %s
                   and version = 'v2'
+                  {readiness_date_filter}
                 order by date desc
                 limit 1;
                 """,
-                (user_id,),
+                params,
             )
             readiness_row = cur.fetchone()
 
@@ -625,6 +701,7 @@ def build_daily_readiness_message(user_id: str) -> str:
                     ),
                     recovery_explanation=recovery_explanation,
                     briefing=readiness_briefing["briefing"],
+                    data_freshness=data_freshness,
                 )
 
             cur.execute(
@@ -706,6 +783,7 @@ def build_daily_readiness_message(user_id: str) -> str:
         return (
             "Human Engine\n\n"
             "📅 Daily Readiness Summary\n"
+            f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}\n"
             "Недостаточно данных для расчета состояния"
         )
 
@@ -740,6 +818,7 @@ def build_daily_readiness_message(user_id: str) -> str:
         "",
         "📅 Daily Readiness Summary",
         f"Дата: {date}",
+        f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}",
         "",
         f"Fitness: {_fmt(fitness, 2)}",
         f"Fatigue: {_fmt(fatigue, 2)}",
@@ -767,26 +846,12 @@ def notify_training_processed(user_id: str, activity_id: int) -> None:
     send_telegram_message(text)
     send_post_ride_rpe_request(activity_id)
 
-def was_daily_readiness_sent(user_id: str, for_date: date) -> bool:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select 1
-                from notification_log
-                where user_id = %s
-                  and notification_type = 'daily_readiness'
-                  and notification_date = %s
-                limit 1;
-                """,
-                (user_id, for_date),
-            )
-            row = cur.fetchone()
-
-    return row is not None
-
-
-def mark_daily_readiness_sent(user_id: str, for_date: date, payload: str | None = None) -> None:
+def claim_daily_readiness(
+    user_id: str,
+    for_date: date,
+    *,
+    data_freshness: dict[str, Any],
+) -> bool:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -803,73 +868,120 @@ def mark_daily_readiness_sent(user_id: str, for_date: date, payload: str | None 
                     %s,
                     %s::jsonb
                 )
-                on conflict (user_id, notification_type, notification_date) do nothing;
+                on conflict (user_id, notification_type, notification_date) do nothing
+                returning 1;
                 """,
                 (
                     user_id,
                     for_date,
-                    json.dumps({"message": payload}) if payload else None,
+                    json.dumps(
+                        {
+                            "delivery_state": "claimed",
+                            "data_freshness": data_freshness,
+                        },
+                        default=str,
+                    ),
+                ),
+            )
+            claimed = cur.fetchone() is not None
+            conn.commit()
+
+    return claimed
+
+
+def mark_daily_readiness_sent(
+    user_id: str,
+    for_date: date,
+    *,
+    payload: str,
+    data_freshness: dict[str, Any],
+) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update notification_log
+                set payload_json = %s::jsonb
+                where user_id = %s
+                  and notification_type = 'daily_readiness'
+                  and notification_date = %s;
+                """,
+                (
+                    json.dumps(
+                        {
+                            "delivery_state": "sent",
+                            "message": payload,
+                            "data_freshness": data_freshness,
+                        },
+                        default=str,
+                    ),
+                    user_id,
+                    for_date,
                 ),
             )
             conn.commit()
 
 
-def was_daily_readiness_sent(user_id: str, for_date: date) -> bool:
+def release_daily_readiness_claim(user_id: str, for_date: date) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select 1
-                from notification_log
+                delete from notification_log
                 where user_id = %s
                   and notification_type = 'daily_readiness'
                   and notification_date = %s
-                limit 1;
+                  and payload_json->>'delivery_state' = 'claimed';
                 """,
                 (user_id, for_date),
-            )
-            row = cur.fetchone()
-
-    return row is not None
-
-
-def mark_daily_readiness_sent(user_id: str, for_date: date, payload: str | None = None) -> None:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into notification_log (
-                    user_id,
-                    notification_type,
-                    notification_date,
-                    payload_json
-                )
-                values (
-                    %s,
-                    'daily_readiness',
-                    %s,
-                    %s::jsonb
-                )
-                on conflict (user_id, notification_type, notification_date) do nothing;
-                """,
-                (
-                    user_id,
-                    for_date,
-                    json.dumps({"message": payload}) if payload else None,
-                ),
             )
             conn.commit()
 
 
-def send_daily_readiness(user_id: str, for_date: date | None = None) -> bool:
+def send_daily_readiness(
+    user_id: str,
+    for_date: date | None = None,
+    *,
+    data_freshness: dict[str, Any] | None = None,
+) -> bool:
     if for_date is None:
         for_date = datetime.now(timezone.utc).date()
 
-    if was_daily_readiness_sent(user_id=user_id, for_date=for_date):
+    if data_freshness is None:
+        data_freshness = get_healthkit_data_freshness(
+            user_id=user_id,
+            for_date=for_date,
+        )
+
+    claimed = claim_daily_readiness(
+        user_id=user_id,
+        for_date=for_date,
+        data_freshness=data_freshness,
+    )
+    if not claimed:
         return False
 
-    text = build_daily_readiness_message(user_id=user_id)
-    send_telegram_message(text)
-    mark_daily_readiness_sent(user_id=user_id, for_date=for_date, payload=text)
+    delivered = False
+    try:
+        text = build_daily_readiness_message(
+            user_id=user_id,
+            for_date=for_date,
+            data_freshness=data_freshness,
+        )
+        send_telegram_message(text)
+        delivered = True
+        mark_daily_readiness_sent(
+            user_id=user_id,
+            for_date=for_date,
+            payload=text,
+            data_freshness=data_freshness,
+        )
+    except Exception:
+        # Once Telegram accepted the message, keep the claim even if persisting
+        # the final payload failed: at-most-once delivery is more important than
+        # retrying into a duplicate morning briefing.
+        if not delivered:
+            release_daily_readiness_claim(user_id=user_id, for_date=for_date)
+        raise
 
     return True

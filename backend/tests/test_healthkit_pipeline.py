@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -220,3 +220,81 @@ def test_ingest_and_process_healthkit_payload_fails_when_load_does_not_reach_lat
         )
 
     assert "did not reach latest recovery date" in str(exc_info.value)
+
+
+def test_fresh_healthkit_sync_triggers_morning_briefing(monkeypatch):
+    payload = HealthSyncPayload(
+        generatedAt=datetime(2026, 4, 17, 8, 0, 0),
+        timezone="Europe/Moscow",
+        sleepNights=[
+            SleepNightDTO(
+                wakeDate=date(2026, 4, 17),
+                sleepStart=datetime(2026, 4, 16, 23, 0, 0),
+                sleepEnd=datetime(2026, 4, 17, 7, 0, 0),
+                totalSleepMinutes=480.0,
+                awakeMinutes=20.0,
+                coreMinutes=260.0,
+                remMinutes=120.0,
+                deepMinutes=100.0,
+            )
+        ],
+    )
+    calls = []
+
+    monkeypatch.setattr(healthkit_pipeline.settings, "daily_readiness_user_id", "user-1")
+    monkeypatch.setattr(healthkit_pipeline, "_local_today", lambda timezone_name: "2026-04-17")
+    monkeypatch.setattr(
+        healthkit_pipeline,
+        "_successful_sync_at",
+        lambda: datetime(2026, 4, 17, 5, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        healthkit_pipeline,
+        "send_daily_readiness",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+
+    healthkit_pipeline._send_fresh_morning_briefing(
+        user_id="user-1",
+        payload=payload,
+    )
+
+    assert calls == [
+        {
+            "user_id": "user-1",
+            "for_date": date(2026, 4, 17),
+            "data_freshness": {
+                "state": "fresh",
+                "recovery_date": "2026-04-17",
+                "last_successful_sync_at": datetime(
+                    2026, 4, 17, 5, 0, tzinfo=timezone.utc
+                ),
+            },
+        }
+    ]
+
+
+def test_historical_healthkit_sync_does_not_trigger_morning_briefing(monkeypatch):
+    payload = HealthSyncPayload(
+        generatedAt=datetime(2026, 4, 17, 8, 0, 0),
+        timezone="Europe/Moscow",
+        restingHeartRateDaily=[
+            RestingHRDailyDTO(date=date(2026, 4, 16), bpm=52.0)
+        ],
+    )
+    calls = []
+
+    monkeypatch.setattr(healthkit_pipeline.settings, "daily_readiness_user_id", "user-1")
+    monkeypatch.setattr(healthkit_pipeline, "_local_today", lambda timezone_name: "2026-04-17")
+    monkeypatch.setattr(
+        healthkit_pipeline,
+        "send_daily_readiness",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+
+    healthkit_pipeline._send_fresh_morning_briefing(
+        user_id="user-1",
+        payload=payload,
+    )
+
+    assert calls == []

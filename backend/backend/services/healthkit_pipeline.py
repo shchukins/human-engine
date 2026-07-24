@@ -1,17 +1,81 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from backend.config import settings
 from backend.core.logging import log_event
 from backend.schemas.healthkit import HealthSyncPayload
 from backend.services.health_recovery_daily import recompute_health_recovery_daily_for_date
 from backend.services.healthkit_ingest import save_healthkit_ingest_raw
 from backend.services.healthkit_processing import process_latest_healthkit_raw
 from backend.services.load_state_v2 import recompute_load_state_daily_v2
+from backend.services.notification_service import send_daily_readiness
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
 
 logger = logging.getLogger(__name__)
+
+
+def _recovery_dates(payload: HealthSyncPayload) -> set[str]:
+    dates = {str(item.wakeDate) for item in payload.sleepNights}
+    dates.update(str(item.date) for item in payload.restingHeartRateDaily)
+    dates.update(item.startAt.date().isoformat() for item in payload.hrvSamples)
+    return dates
+
+
+def _local_today(timezone_name: str) -> str:
+    try:
+        local_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        local_timezone = timezone.utc
+    return datetime.now(timezone.utc).astimezone(local_timezone).date().isoformat()
+
+
+def _successful_sync_at() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _send_fresh_morning_briefing(
+    *,
+    user_id: str,
+    payload: HealthSyncPayload,
+) -> None:
+    today = _local_today(payload.timezone)
+    if user_id != settings.daily_readiness_user_id or today not in _recovery_dates(payload):
+        return
+
+    data_freshness = {
+        "state": "fresh",
+        "recovery_date": today,
+        "last_successful_sync_at": _successful_sync_at(),
+    }
+    try:
+        sent = send_daily_readiness(
+            user_id=user_id,
+            for_date=date.fromisoformat(today),
+            data_freshness=data_freshness,
+        )
+        log_event(
+            logger,
+            "daily_readiness_fresh_sync_triggered",
+            user_id=user_id,
+            target_date=today,
+            sent=sent,
+        )
+    except Exception as error:
+        # Notification delivery is auxiliary: a Telegram failure must not turn
+        # an already successful deterministic HealthKit pipeline into a failed sync.
+        log_event(
+            logger,
+            "daily_readiness_fresh_sync_failed",
+            level=logging.ERROR,
+            user_id=user_id,
+            target_date=today,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
 
 
 def _collect_affected_dates(payload: HealthSyncPayload) -> list[str]:
@@ -121,6 +185,7 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
         rhr_count=len(payload.restingHeartRateDaily),
         readiness_days_recomputed=len(readiness_results),
     )
+    _send_fresh_morning_briefing(user_id=user_id, payload=payload)
 
     return {
         "ok": True,

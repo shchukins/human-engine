@@ -274,6 +274,22 @@ POST /api/v1/healthkit/full-sync/{user_id}
 
 Daily Telegram briefing в текущем backend использует `readiness_daily` как source of truth.
 
+Основной утренний триггер — успешный HealthKit full-sync, который содержит
+sleep, HRV или resting HR за локальную текущую дату и завершил пересчет
+recovery/readiness. Настраиваемое расписание
+`DAILY_READINESS_FALLBACK_HOUR_UTC` используется только как fallback, если
+fresh sync не отправил briefing раньше.
+
+Freshness состояния:
+
+- `fresh` — recovery за текущую дату пересчитан после успешного sync
+- `stale` — последний доступный recovery относится к более ранней дате
+- `missing` — recovery данных нет
+
+Сообщение явно показывает freshness HealthKit данных. Дневной unique claim в
+`notification_log` обеспечивает at-most-once отправку при повторных sync и
+конкуренции event/fallback триггеров.
+
 Основные поля:
 
 - `readiness_score`

@@ -12,15 +12,15 @@ from backend.services.subjective_feedback_service import schedule_next_day_recov
 configure_logging()
 logger = logging.getLogger(__name__)
 
-DAILY_READINESS_USER_ID = "sergey"
-DAILY_READINESS_HOUR_UTC = 7
+DAILY_READINESS_USER_ID = settings.daily_readiness_user_id
+DAILY_READINESS_FALLBACK_HOUR_UTC = settings.daily_readiness_fallback_hour_utc
 NEXT_DAY_RECOVERY_PROMPT_HOUR_UTC = settings.next_day_recovery_prompt_hour_utc
 
 
 def maybe_send_daily_readiness() -> None:
     now = datetime.now(timezone.utc)
 
-    if now.hour != DAILY_READINESS_HOUR_UTC:
+    if now.hour != DAILY_READINESS_FALLBACK_HOUR_UTC:
         return
 
     sent = send_daily_readiness(DAILY_READINESS_USER_ID, for_date=now.date())
@@ -28,7 +28,7 @@ def maybe_send_daily_readiness() -> None:
     if sent:
         log_event(
             logger,
-            "daily_readiness_sent",
+            "daily_readiness_fallback_sent",
             user_id=DAILY_READINESS_USER_ID,
         )
 

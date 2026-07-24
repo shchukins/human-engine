@@ -48,3 +48,37 @@ def test_maybe_schedule_next_day_recovery_prompts_skips_outside_configured_hour(
     worker.maybe_schedule_next_day_recovery_prompts()
 
     assert calls == []
+
+
+def test_maybe_send_daily_readiness_runs_as_fallback_at_configured_hour(monkeypatch):
+    calls = []
+    _FakeDateTime.current = datetime(2026, 5, 15, 7, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(worker, "datetime", _FakeDateTime)
+    monkeypatch.setattr(worker, "DAILY_READINESS_FALLBACK_HOUR_UTC", 7)
+    monkeypatch.setattr(
+        worker,
+        "send_daily_readiness",
+        lambda user_id, for_date: calls.append((user_id, for_date)) or True,
+    )
+
+    worker.maybe_send_daily_readiness()
+
+    assert calls == [("sergey", datetime(2026, 5, 15, tzinfo=timezone.utc).date())]
+
+
+def test_maybe_send_daily_readiness_skips_before_fallback_hour(monkeypatch):
+    calls = []
+    _FakeDateTime.current = datetime(2026, 5, 15, 6, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(worker, "datetime", _FakeDateTime)
+    monkeypatch.setattr(worker, "DAILY_READINESS_FALLBACK_HOUR_UTC", 7)
+    monkeypatch.setattr(
+        worker,
+        "send_daily_readiness",
+        lambda user_id, for_date: calls.append((user_id, for_date)),
+    )
+
+    worker.maybe_send_daily_readiness()
+
+    assert calls == []

@@ -26,5 +26,15 @@ class Settings(BaseSettings):
         le=23,
         alias="NEXT_DAY_RECOVERY_PROMPT_HOUR_UTC",
     )
+    daily_readiness_user_id: str = Field(
+        default="sergey",
+        alias="DAILY_READINESS_USER_ID",
+    )
+    daily_readiness_fallback_hour_utc: int = Field(
+        default=7,
+        ge=0,
+        le=23,
+        alias="DAILY_READINESS_FALLBACK_HOUR_UTC",
+    )
 
 settings = Settings()

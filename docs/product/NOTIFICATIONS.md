@@ -61,6 +61,21 @@ Source of truth:
 - notification layer использует уже materialized readiness state
 - основное сообщение строится от score-level данных, а не от raw health samples
 
+Триггеры:
+
+- основной: успешный HealthKit full-sync с recovery-сигналом за локальную
+  текущую дату после recompute recovery/readiness
+- fallback: worker в `DAILY_READINESS_FALLBACK_HOUR_UTC` (по умолчанию `7`)
+
+Fallback и повторные sync используют один daily atomic claim в
+`notification_log`, поэтому отправка выполняется не более одного раза в день.
+
+HealthKit freshness в сообщении:
+
+- `fresh` — recovery относится к дате briefing
+- `stale` — последний recovery старше даты briefing
+- `missing` — recovery отсутствует
+
 ---
 
 ## 4. Daily readiness message style
