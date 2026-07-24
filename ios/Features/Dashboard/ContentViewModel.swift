@@ -422,6 +422,7 @@ final class ContentViewModel {
         reloadSyncState()
         restoreLatestHealthSnapshot()
         refreshStatuses()
+        loadTodayReadiness()
 
         guard !hasPreparedDashboard else {
             completion()
@@ -509,6 +510,14 @@ final class ContentViewModel {
             case .failure:
                 break
             }
+        }
+    }
+
+    func runSmartSyncFromMainScreen() {
+        if syncState.lastSuccessfulSyncAt == nil {
+            runFullSyncFromMainScreen()
+        } else {
+            runIncrementalSyncFromMainScreen()
         }
     }
 
@@ -609,12 +618,88 @@ final class ContentViewModel {
         return String(format: "%.1f kg", weight.kilograms)
     }
 
+    var latestSleepTimeText: String {
+        latestSleepNightAggregate.map { DateFormatters.shortDateTime($0.wakeDate) } ?? "No data"
+    }
+
+    var latestHRVTimeText: String {
+        latestHRVSample.map { DateFormatters.shortDateTime($0.date) } ?? "No data"
+    }
+
+    var latestRestingHRTimeText: String {
+        latestRestingHRSample.map { DateFormatters.shortDateTime($0.date) } ?? "No data"
+    }
+
+    var latestWeightTimeText: String {
+        latestWeightSample.map { DateFormatters.shortDateTime($0.date) } ?? "No data"
+    }
+
+    var decisionStatusText: String {
+        guard let recommendation = todayReadiness?.recommendation?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !recommendation.isEmpty
+        else {
+            return "Waiting for backend decision"
+        }
+
+        return recommendation.replacingOccurrences(of: "_", with: " ").uppercased()
+    }
+
+    var decisionSupportingText: String {
+        let backendText = [
+            todayReadiness?.briefingText,
+            todayReadiness?.briefing,
+            todayReadiness?.reason,
+            todayReadiness?.readinessComment,
+            todayReadiness?.statusText
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+
+        if let backendText {
+            return backendText
+        }
+
+        if readinessErrorMessage != nil {
+            return "Latest signals are synced and ready for backend analysis."
+        }
+
+        return "Latest signals are synced and ready for analysis."
+    }
+
+    var compactFreshnessStatusText: String {
+        if requiresHealthKitAuthorization {
+            return "Permissions required"
+        }
+
+        if isSyncInProgress {
+            return "Syncing"
+        }
+
+        if syncState.lastErrorMessage != nil {
+            return "Error"
+        }
+
+        guard let lastSuccessfulSyncAt = syncState.lastSuccessfulSyncAt else {
+            return "Not synced"
+        }
+
+        return "Updated \(relativeTimeString(from: lastSuccessfulSyncAt))"
+    }
+
     var lastSyncDisplayText: String {
         if let lastSuccessfulSyncAt = syncState.lastSuccessfulSyncAt {
             return DateFormatters.shortDateTime(lastSuccessfulSyncAt)
         }
 
-        return "NONE"
+        return "None"
+    }
+
+    var lastSyncAttemptDisplayText: String {
+        if let lastSyncAttemptAt = syncState.lastSyncAttemptAt {
+            return DateFormatters.shortDateTime(lastSyncAttemptAt)
+        }
+
+        return "None"
     }
 
     var lastPayloadDisplayText: String {
@@ -622,11 +707,19 @@ final class ContentViewModel {
             return DateFormatters.shortDateTime(lastPayloadGeneratedAt)
         }
 
-        return "NONE"
+        return "None"
     }
 
     var lastSyncModeDisplayText: String {
-        syncState.lastSyncMode?.rawValue.uppercased() ?? "NONE"
+        syncState.lastSyncMode?.rawValue.capitalized ?? "None"
+    }
+
+    var autoSyncDisplayText: String {
+        syncState.hasPendingAutoSync ? "Pending" : "On"
+    }
+
+    var manualSyncSubtitle: String {
+        syncState.lastSuccessfulSyncAt == nil ? "Full sync" : "Incremental sync"
     }
 
     var backendDisplayName: String {
@@ -705,6 +798,26 @@ final class ContentViewModel {
         let hours = totalMinutes / 60
         let remainingMinutes = totalMinutes % 60
         return "\(hours)h \(remainingMinutes)m"
+    }
+
+    private func relativeTimeString(from date: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(date))
+
+        if seconds < 60 {
+            return "just now"
+        }
+
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return minutes == 1 ? "1 min ago" : "\(minutes) min ago"
+        }
+
+        let hours = minutes / 60
+        if hours < 24 {
+            return hours == 1 ? "1 h ago" : "\(hours) h ago"
+        }
+
+        return DateFormatters.shortDateTime(date)
     }
 
     var requiresHealthKitAuthorization: Bool {

@@ -20,7 +20,7 @@ struct DebugView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Debug")
+            .navigationTitle("Diagnostics")
             .onAppear {
                 viewModel.reloadSyncState()
                 viewModel.refreshStatuses()
@@ -37,7 +37,7 @@ struct DebugView: View {
                     ProgressView("Sync in progress...")
                 }
 
-                Button("Request permissions") {
+                Button("Request HealthKit access") {
                     viewModel.requestPermissions()
                 }
 
@@ -65,7 +65,7 @@ struct DebugView: View {
                     viewModel.performIncrementalSync()
                 }
 
-                Button("Backfill since May 23") {
+                Button("Backfill since 2026-05-23") {
                     viewModel.performBackfillSinceMay23()
                 }
             }

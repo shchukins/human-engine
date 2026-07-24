@@ -38,7 +38,7 @@
 
 /* Begin PBXFileReference section */
 		54024A172F9282BE005289A1 /* ReadinessModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadinessModels.swift; sourceTree = "<group>"; };
-		5410D5A02F82E9290074C0EF /* HumanEngineIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HumanEngineIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5410D5A02F82E9290074C0EF /* WHATTE.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WHATTE.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		54183CBE2FA65E3200069B5E /* SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCoordinator.swift; sourceTree = "<group>"; };
 		549CBCE22F92B09E00E89E91 /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
 		549CBCE42F92B13200E89E91 /* DebugViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugViewModel.swift; sourceTree = "<group>"; };
@@ -95,7 +95,7 @@
 		5410D5A12F82E9290074C0EF /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				5410D5A02F82E9290074C0EF /* HumanEngineIOS.app */,
+				5410D5A02F82E9290074C0EF /* WHATTE.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -205,7 +205,7 @@
 			packageProductDependencies = (
 			);
 			productName = HumanEngineIOS;
-			productReference = 5410D5A02F82E9290074C0EF /* HumanEngineIOS.app */;
+			productReference = 5410D5A02F82E9290074C0EF /* WHATTE.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -423,6 +423,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = WHATTE;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Human Engine reads sleep, HRV, resting heart rate, and weight data to sync recovery metrics with your account.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -435,7 +436,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shchukins.humanengine;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = WHATTE;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -456,6 +457,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = WHATTE;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Human Engine reads sleep, HRV, resting heart rate, and weight data to sync recovery metrics with your account.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -468,7 +470,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shchukins.humanengine;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = WHATTE;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;

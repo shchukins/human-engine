@@ -16,18 +16,16 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 20) {
                         topBar
-                        connectionStatusRow
+                        decisionCard
                         if viewModel.requiresHealthKitAuthorization {
                             healthKitAccessCard
                         }
                         recoverySignalsCard
                         dataFreshnessCard
-                        backendOwnershipCard
                         syncDataCard
-                        dataSourcesCard
-                        tabBar
+                        diagnosticsEntry
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
@@ -58,51 +56,65 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 14) {
-            Text(">_")
-                .font(.system(size: 18, weight: .bold, design: .monospaced))
-                .foregroundStyle(HEColor.accentGreen)
-
+        HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("HUMAN ENGINE")
-                    .font(.system(size: 22, weight: .bold, design: .default))
+                Text("WHATTE")
+                    .font(.system(size: 34, weight: .black, design: .default))
+                    .foregroundStyle(HEColor.primaryText)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text("WHAT NOW?")
+                    .font(.system(size: 16, weight: .semibold, design: .default))
                     .foregroundStyle(HEColor.accentGreen)
                     .lineLimit(1)
 
-                Text("HEALTHKIT INGESTION CLIENT")
-                    .font(HETypography.overline)
+                Text("Decision engine for training")
+                    .font(HETypography.body)
                     .foregroundStyle(HEColor.secondaryText)
-                    .tracking(1.2)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                    .minimumScaleFactor(0.85)
             }
 
             Spacer()
 
-            Image(systemName: "gearshape")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(HEColor.secondaryText)
-                .padding(10)
-                .background(HEColor.card)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(HEColor.border, lineWidth: 1)
-                )
+            NavigationLink {
+                DebugView()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(HEColor.secondaryText)
+                    .frame(width: 44, height: 44)
+                    .background(HEColor.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(HEColor.border, lineWidth: 1)
+                    )
+            }
+            .accessibilityLabel("Diagnostics")
         }
     }
 
-    private var connectionStatusRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                StatusBadge(
-                    text: viewModel.backendStatusLabel,
-                    color: viewModel.backendStatusLabel == "CONNECTED" ? HEColor.accentGreen : HEColor.accentCyan
-                )
+    private var decisionCard: some View {
+        DashboardCard(title: "WHAT NOW?", accent: HEColor.accentGreen) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(viewModel.decisionStatusText)
+                    .font(HETypography.status)
+                    .foregroundStyle(HEColor.primaryText)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                StatusBadge(text: "AUTO SYNC ON", color: HEColor.accentCyan)
+                Text(viewModel.decisionSupportingText)
+                    .font(HETypography.body)
+                    .foregroundStyle(HEColor.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                StatusBadge(text: "UPDATED \(updatedStatusText)", color: HEColor.accentYellow)
+                HStack(spacing: 10) {
+                    StatusBadge(text: viewModel.compactFreshnessStatusText, color: freshnessStatusColor)
+                    StatusBadge(text: viewModel.backendStatusLabel.capitalized, color: color(forStatusKey: viewModel.backendStatusColor))
+                }
             }
         }
     }
@@ -110,12 +122,12 @@ struct ContentView: View {
     private var healthKitAccessCard: some View {
         DashboardCard(title: "HEALTHKIT ACCESS REQUIRED", accent: HEColor.accentYellow) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("HealthKit permissions required")
+                Text("HealthKit access required")
                     .font(HETypography.title)
                     .foregroundStyle(HEColor.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Enable Sleep, HRV, Resting HR, and Weight access before sync can start.")
+                Text("Enable Sleep, HRV, Resting HR, and Weight access to show your latest signals.")
                     .font(HETypography.body)
                     .foregroundStyle(HEColor.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -132,7 +144,7 @@ struct ContentView: View {
     private var recoverySignalsCard: some View {
         DashboardCard(title: "RECOVERY SIGNALS", accent: HEColor.accentCyan) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Latest HealthKit data")
+                Text("Latest known HealthKit signals")
                     .font(HETypography.body)
                     .foregroundStyle(HEColor.secondaryText)
 
@@ -140,21 +152,25 @@ struct ContentView: View {
                     recoverySignalMetric(
                         title: "SLEEP",
                         value: viewModel.latestSleepValue,
+                        time: viewModel.latestSleepTimeText,
                         color: HEColor.accentGreen
                     )
                     recoverySignalMetric(
                         title: "HRV",
                         value: viewModel.latestHRVValue,
+                        time: viewModel.latestHRVTimeText,
                         color: HEColor.accentCyan
                     )
                     recoverySignalMetric(
                         title: "RESTING HR",
                         value: viewModel.latestRestingHRValue,
+                        time: viewModel.latestRestingHRTimeText,
                         color: HEColor.accentYellow
                     )
                     recoverySignalMetric(
                         title: "WEIGHT",
                         value: viewModel.latestWeightValue,
+                        time: viewModel.latestWeightTimeText,
                         color: HEColor.primaryText
                     )
                 }
@@ -165,42 +181,63 @@ struct ContentView: View {
     private var dataFreshnessCard: some View {
         DashboardCard(title: "DATA FRESHNESS", accent: HEColor.accentGreen, secondaryBackground: true) {
             VStack(alignment: .leading, spacing: 14) {
-                ViewThatFits {
-                    HStack(alignment: .top, spacing: 12) {
-                        freshnessMetric(title: "LAST SYNC", value: viewModel.lastSyncDisplayText)
-                        freshnessMetric(
-                            title: "SYNC MODE",
-                            value: viewModel.lastSyncModeDisplayText,
-                            valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode)
-                        )
-                    }
+                HStack(spacing: 10) {
+                    StatusBadge(text: viewModel.compactFreshnessStatusText, color: freshnessStatusColor)
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        freshnessMetric(title: "LAST SYNC", value: viewModel.lastSyncDisplayText)
-                        freshnessMetric(
-                            title: "SYNC MODE",
-                            value: viewModel.lastSyncModeDisplayText,
-                            valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode)
-                        )
+                    if viewModel.isSyncInProgress {
+                        ProgressView()
+                            .tint(HEColor.accentGreen)
                     }
                 }
 
                 ViewThatFits {
                     HStack(alignment: .top, spacing: 12) {
-                        freshnessMetric(title: "ITEMS SENT", value: "\(viewModel.syncState.lastSentItemCount)")
+                        freshnessMetric(title: "Last successful sync", value: viewModel.lastSyncDisplayText)
+                        freshnessMetric(title: "Last sync attempt", value: viewModel.lastSyncAttemptDisplayText)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        freshnessMetric(title: "Last successful sync", value: viewModel.lastSyncDisplayText)
+                        freshnessMetric(title: "Last sync attempt", value: viewModel.lastSyncAttemptDisplayText)
+                    }
+                }
+
+                ViewThatFits {
+                    HStack(alignment: .top, spacing: 12) {
                         freshnessMetric(
-                            title: "BACKEND",
-                            value: viewModel.backendStatusLabel,
-                            valueColor: color(forStatusKey: viewModel.backendStatusColor)
+                            title: "Sync mode",
+                            value: viewModel.lastSyncModeDisplayText,
+                            valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode)
+                        )
+                        freshnessMetric(title: "Items sent", value: "\(viewModel.syncState.lastSentItemCount)")
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        freshnessMetric(
+                            title: "Sync mode",
+                            value: viewModel.lastSyncModeDisplayText,
+                            valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode)
+                        )
+                        freshnessMetric(title: "Items sent", value: "\(viewModel.syncState.lastSentItemCount)")
+                    }
+                }
+
+                ViewThatFits {
+                    HStack(alignment: .top, spacing: 12) {
+                        freshnessMetric(title: "Backend status", value: viewModel.backendStatusLabel.capitalized, valueColor: color(forStatusKey: viewModel.backendStatusColor))
+                        freshnessMetric(
+                            title: "Auto sync",
+                            value: viewModel.autoSyncDisplayText,
+                            valueColor: viewModel.syncState.hasPendingAutoSync ? HEColor.accentYellow : HEColor.primaryText
                         )
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        freshnessMetric(title: "ITEMS SENT", value: "\(viewModel.syncState.lastSentItemCount)")
+                        freshnessMetric(title: "Backend status", value: viewModel.backendStatusLabel.capitalized, valueColor: color(forStatusKey: viewModel.backendStatusColor))
                         freshnessMetric(
-                            title: "BACKEND",
-                            value: viewModel.backendStatusLabel,
-                            valueColor: color(forStatusKey: viewModel.backendStatusColor)
+                            title: "Auto sync",
+                            value: viewModel.autoSyncDisplayText,
+                            valueColor: viewModel.syncState.hasPendingAutoSync ? HEColor.accentYellow : HEColor.primaryText
                         )
                     }
                 }
@@ -210,10 +247,9 @@ struct ContentView: View {
                         .overlay(HEColor.border)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("LAST ERROR")
+                        Text("Last error")
                             .font(HETypography.overline)
                             .foregroundStyle(HEColor.error)
-                            .tracking(1.0)
 
                         Text(error)
                             .font(.caption)
@@ -225,47 +261,33 @@ struct ContentView: View {
         }
     }
 
-    private var backendOwnershipCard: some View {
-        DashboardCard(title: "BACKEND OWNED", accent: HEColor.accentYellow, secondaryBackground: true) {
-            Text("Load, readiness, recommendations, and Strava-based analytics are calculated on the backend.")
-                .font(HETypography.body)
-                .foregroundStyle(HEColor.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     private var syncDataCard: some View {
-        DashboardCard(title: "SYNC & DATA", accent: HEColor.accentGreen) {
-            VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(columns: actionColumns, spacing: 12) {
-                    SyncActionButton(
-                        title: "SYNC NOW",
-                        subtitle: "Full sync",
-                        icon: "arrow.clockwise",
-                        accent: HEColor.accentGreen
-                    ) {
-                        viewModel.runFullSyncFromMainScreen()
-                    }
+        DashboardCard(title: "SYNC", accent: HEColor.accentGreen, secondaryBackground: true) {
+            VStack(alignment: .leading, spacing: 14) {
+                Button {
+                    viewModel.runSmartSyncFromMainScreen()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 17, weight: .semibold))
 
-                    SyncActionButton(
-                        title: "INCREMENTAL",
-                        subtitle: "New data only",
-                        icon: "arrow.down.circle",
-                        accent: HEColor.accentCyan
-                    ) {
-                        viewModel.runIncrementalSyncFromMainScreen()
-                    }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync now")
+                                .font(.system(size: 16, weight: .semibold, design: .default))
 
-                    SyncActionButton(
-                        title: "PAYLOAD",
-                        subtitle: "View summary",
-                        icon: "doc.text",
-                        accent: HEColor.accentYellow
-                    ) {
-                        viewModel.buildPayloadPreview()
+                            Text(viewModel.manualSyncSubtitle)
+                                .font(.caption)
+                        }
+                        .lineLimit(2)
+
+                        Spacer()
                     }
+                    .frame(minHeight: 44)
                 }
                 .disabled(viewModel.isSyncInProgress)
+                .buttonStyle(.borderedProminent)
+                .tint(HEColor.accentGreen)
+                .foregroundStyle(HEColor.background)
 
                 if viewModel.isSyncInProgress {
                     ProgressView("Sync in progress...")
@@ -273,223 +295,44 @@ struct ContentView: View {
                         .foregroundStyle(HEColor.secondaryText)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    ViewThatFits {
-                        HStack(alignment: .top, spacing: 12) {
-                            MetricRow(title: "LAST SYNC", value: viewModel.lastSyncDisplayText)
-                            MetricRow(title: "MODE", value: viewModel.lastSyncModeDisplayText, valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode))
-                        }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            MetricRow(title: "LAST SYNC", value: viewModel.lastSyncDisplayText)
-                            MetricRow(title: "MODE", value: viewModel.lastSyncModeDisplayText, valueColor: accentColor(forMode: viewModel.syncState.lastSyncMode))
-                        }
-                    }
-
-                    ViewThatFits {
-                        HStack(alignment: .top, spacing: 12) {
-                            MetricRow(title: "ITEMS SENT", value: "\(viewModel.syncState.lastSentItemCount)")
-                            MetricRow(title: "LAST PAYLOAD", value: viewModel.lastPayloadDisplayText)
-                        }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            MetricRow(title: "ITEMS SENT", value: "\(viewModel.syncState.lastSentItemCount)")
-                            MetricRow(title: "LAST PAYLOAD", value: viewModel.lastPayloadDisplayText)
-                        }
-                    }
-                }
-
-                if !viewModel.payloadSummary.isEmpty {
-                    Divider()
-                        .overlay(HEColor.border)
-
-                    Text(viewModel.payloadSummary)
-                        .font(HETypography.metric)
-                        .foregroundStyle(HEColor.secondaryText)
-                        .textSelection(.enabled)
-                }
-
-                DisclosureGroup("UTILITY ACTIONS") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        utilityButtonRow(
-                            title: "REQUEST PERMISSIONS",
-                            subtitle: "HealthKit authorization",
-                            action: viewModel.requestPermissions
-                        )
-
-                        utilityButtonRow(
-                            title: "REFRESH PERMISSIONS",
-                            subtitle: "Reload authorization state",
-                            action: viewModel.refreshStatuses
-                        )
-
-                        utilityButtonRow(
-                            title: "READ SAMPLE DATA",
-                            subtitle: "Load recent HealthKit samples",
-                            action: viewModel.readSampleData
-                        )
-
-                        utilityButtonRow(
-                            title: "RESET SYNC STATE",
-                            subtitle: "Clear local sync metadata",
-                            action: viewModel.resetSyncState
-                        )
-                    }
-                    .padding(.top, 12)
-                }
-                .font(HETypography.overline)
-                .tint(HEColor.secondaryText)
-
-                if !viewModel.payloadPreview.isEmpty {
-                    DisclosureGroup("PAYLOAD PREVIEW") {
-                        Text(viewModel.payloadPreview)
-                            .font(.system(size: 11, weight: .regular, design: .monospaced))
-                            .foregroundStyle(HEColor.secondaryText)
-                            .textSelection(.enabled)
-                            .padding(.top, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(HETypography.overline)
-                    .tint(HEColor.secondaryText)
-                }
-            }
-        }
-    }
-
-    private var dataSourcesCard: some View {
-        DashboardCard(title: "DATA SOURCES", accent: HEColor.accentCyan) {
-            VStack(alignment: .leading, spacing: 14) {
-                DataSourceRow(
-                    title: "HealthKit",
-                    subtitle: "Sleep, HRV, Resting HR, Weight",
-                    status: viewModel.healthKitStatusLabel,
-                    color: color(forStatusKey: viewModel.healthKitStatusColor)
-                )
-
-                Divider()
-                    .overlay(HEColor.border)
-
-                DataSourceRow(
-                    title: "Strava",
-                    subtitle: "Activities, Training Load",
-                    status: "BACKEND",
-                    color: HEColor.accentYellow
-                )
-
-                Divider()
-                    .overlay(HEColor.border)
-
-                DataSourceRow(
-                    title: "Backend",
-                    subtitle: viewModel.backendDisplayName,
-                    status: viewModel.backendStatusLabel,
-                    color: color(forStatusKey: viewModel.backendStatusColor)
-                )
-
-                Divider()
-                    .overlay(HEColor.border)
-
-                DataSourceRow(
-                    title: "Manual / Debug",
-                    subtitle: "Backfill, payload preview, reset",
-                    status: "OK",
-                    color: HEColor.accentPurple
-                )
-
-                Divider()
-                    .overlay(HEColor.border)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("PERMISSIONS")
-                        .font(HETypography.overline)
-                        .foregroundStyle(HEColor.secondaryText)
-                        .tracking(1.0)
-
-                    ForEach(viewModel.authorizationItems, id: \.name) { item in
-                        HStack {
-                            Text(item.name.uppercased())
-                                .font(HETypography.metric)
-                                .foregroundStyle(HEColor.primaryText)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.9)
-
-                            Spacer()
-
-                            Text(item.status.uppercased())
-                                .font(HETypography.overline)
-                                .foregroundStyle(permissionColor(for: item.status))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-
-                    Text("HealthKit read permissions are verified by data access, not authorizationStatus.")
-                        .font(.caption2)
-                        .foregroundStyle(HEColor.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 8) {
-            dashboardTab("OVERVIEW", active: true)
-            dashboardTab("SYNC", active: false)
-            dashboardTab("RECOVERY", active: false)
-            dashboardTab("TRENDS", active: false)
-            dashboardTab("SETTINGS", active: false)
-        }
-        .padding(6)
-        .frame(maxWidth: .infinity)
-        .background(HEColor.card)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(HEColor.border, lineWidth: 1)
-        )
-    }
-
-    private func utilityButtonRow(title: String, subtitle: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(HETypography.overline)
-                        .foregroundStyle(HEColor.primaryText)
-                        .tracking(1.0)
-                        .lineLimit(1)
-
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(HEColor.secondaryText)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                Text("Full sync runs automatically until the first successful sync. Incremental sync is used after that.")
+                    .font(.caption)
                     .foregroundStyle(HEColor.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 6)
         }
-        .buttonStyle(.plain)
     }
 
-    private func dashboardTab(_ title: String, active: Bool) -> some View {
-        Text(title)
-            .font(HETypography.overline)
-            .foregroundStyle(active ? HEColor.background : HEColor.secondaryText)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .background(active ? HEColor.accentGreen : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
+    private var diagnosticsEntry: some View {
+        DashboardCard(title: "DIAGNOSTICS", accent: HEColor.accentCyan, secondaryBackground: true) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Technical sync tools, HealthKit read checks, payload preview, and backend configuration.")
+                    .font(HETypography.body)
+                    .foregroundStyle(HEColor.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                NavigationLink {
+                    DebugView()
+                } label: {
+                    HStack {
+                        Text("Open diagnostics")
+                            .font(.system(size: 16, weight: .semibold, design: .default))
+                            .foregroundStyle(HEColor.primaryText)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(HEColor.secondaryText)
+                    }
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
-    private func recoverySignalMetric(title: String, value: String, color: Color) -> some View {
+    private func recoverySignalMetric(title: String, value: String, time: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(HETypography.overline)
@@ -503,6 +346,12 @@ struct ContentView: View {
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
+            Text(time)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(HEColor.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -539,55 +388,26 @@ struct ContentView: View {
         case .incremental:
             return HEColor.accentCyan
         case .backfill:
-            return HEColor.accentPurple
+            return HEColor.accentYellow
         case nil:
             return HEColor.secondaryText
         }
     }
 
-    private func permissionColor(for status: String) -> Color {
-        switch status {
-        case "READ OK":
-            return HEColor.accentGreen
-        case "NO DATA / CHECK HEALTH SETTINGS":
+    private var freshnessStatusColor: Color {
+        if viewModel.requiresHealthKitAuthorization {
             return HEColor.accentYellow
-        case "NOT REQUESTED":
-            return HEColor.secondaryText
-        default:
+        }
+
+        if viewModel.syncState.lastErrorMessage != nil {
             return HEColor.error
         }
-    }
 
-    private var updatedStatusText: String {
-        if let lastSuccessfulSyncAt = viewModel.syncState.lastSuccessfulSyncAt {
-            return relativeTimeString(from: lastSuccessfulSyncAt).uppercased()
+        if viewModel.isSyncInProgress {
+            return HEColor.accentCyan
         }
 
-        if let lastSyncAttemptAt = viewModel.syncState.lastSyncAttemptAt {
-            return DateFormatters.shortDateTime(lastSyncAttemptAt).uppercased()
-        }
-
-        return "NOT YET"
-    }
-
-    private func relativeTimeString(from date: Date) -> String {
-        let seconds = Int(Date().timeIntervalSince(date))
-
-        if seconds < 60 {
-            return "JUST NOW"
-        }
-
-        let minutes = seconds / 60
-        if minutes < 60 {
-            return minutes == 1 ? "1 MIN AGO" : "\(minutes) MIN AGO"
-        }
-
-        let hours = minutes / 60
-        if hours < 24 {
-            return hours == 1 ? "1 H AGO" : "\(hours) H AGO"
-        }
-
-        return DateFormatters.shortDateTime(date)
+        return HEColor.accentGreen
     }
 }
 
