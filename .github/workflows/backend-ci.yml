@@ -96,18 +96,22 @@ jobs:
       - name: Apply DB schema
         run: |
             for f in ../db-init/*.sql; do
-              psql "$DATABASE_URL" -f "$f"
+              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
             done
 
             for f in ../sql/ingestion/*.sql; do
-              psql "$DATABASE_URL" -f "$f"
+              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
+            done
+
+            for f in ../sql/health/*.sql; do
+              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
             done
 
             for f in ../sql/analytics/*.sql; do
-              psql "$DATABASE_URL" -f "$f"
+              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
             done
 
-            psql "$DATABASE_URL" -f ../sql/scratch/sql_user_training_profile.sql
+            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f ../sql/scratch/sql_user_training_profile.sql
 
       - name: Run DB integration tests
         run: |
