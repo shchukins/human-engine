@@ -263,6 +263,7 @@ Readiness считается ежедневно и сохраняется в `re
 - `recovery_explanation`
 - `weights`
 - `formula`
+- `source_timestamps`
 
 Где:
 
@@ -281,7 +282,32 @@ Readiness считается ежедневно и сохраняется в `re
 
 Это нужно для explainability и отладки.
 
-### 7.1 Missing recovery inputs
+### 7.1 Readiness source-data freshness
+
+Readiness source-data freshness is a separate deterministic query contract. It
+must not be confused with the load-model field `freshness`.
+
+At recomputation time, `explanation_json.source_timestamps` snapshots:
+
+- `recovery_source_at`: the `health_recovery_daily.date` row used, or `null`;
+- `training_source_at`: the `load_state_daily_v2.date` row used, or `null`;
+- `timezone`: the latest stored HealthKit timezone, with explicit `UTC`
+  fallback when unavailable.
+
+The readiness formula, weights, fallback modes, score zones, recommendation
+thresholds, and `good_day_probability` are unchanged. Source freshness only
+classifies whether the saved evidence is current:
+
+- exact target-day evidence is current;
+- older source evidence is stale;
+- supported one-family fallback plus a current available family is partial;
+- absent/invalid required evidence is missing.
+
+`data_quality` continues to describe input completeness. Source freshness
+describes currency. Model confidence is a third, separate concern and is not
+inferred from either field.
+
+### 7.2 Missing recovery inputs
 
 Recovery layer обрабатывает частично неполные HealthKit данные до readiness:
 
@@ -292,7 +318,7 @@ Recovery layer обрабатывает частично неполные Health
 
 Readiness не меняет эту логику. Она получает уже рассчитанный `recovery_score_simple`.
 
-### 7.2 `readiness_daily.explanation_json`
+### 7.3 `readiness_daily.explanation_json`
 
 Структура текущего explanation payload:
 
@@ -307,6 +333,11 @@ Readiness не меняет эту логику. Она получает уже 
   "freshness": 5.0,
   "freshness_norm": 55.0,
   "recovery_score_simple": 56.5,
+  "source_timestamps": {
+    "recovery_source_at": "2026-05-02",
+    "training_source_at": "2026-05-02",
+    "timezone": "Europe/Moscow"
+  },
   "recovery_explanation": {
     "sleep_score": 82.8,
     "hrv_score": 42.1,

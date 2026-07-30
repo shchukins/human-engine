@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -79,6 +79,11 @@ def test_get_readiness_daily_for_date_includes_recommendation(monkeypatch):
             "hrv_today": 58.0,
             "rhr_today": 50.0,
         },
+        "source_timestamps": {
+            "recovery_source_at": "2026-04-16",
+            "training_source_at": "2026-04-16",
+            "timezone": "Europe/Moscow",
+        },
     }
     row = (
         "user-1",
@@ -87,6 +92,7 @@ def test_get_readiness_daily_for_date_includes_recommendation(monkeypatch):
         0.692,
         "Хорошая готовность",
         explanation,
+        datetime(2026, 4, 16, 5, tzinfo=timezone.utc),
     )
 
     monkeypatch.setattr(readiness_query, "get_conn", lambda: _FakeConn(row))
@@ -108,6 +114,11 @@ def test_get_readiness_daily_for_date_includes_recommendation(monkeypatch):
     }
     assert result["briefing"] == "Сегодня хорошая готовность. Рекомендуется умеренная аэробная тренировка."
     assert result["briefing_text"] == result["briefing"]
+    assert result["freshness_state"] == "fresh"
+    assert result["freshness_reason_codes"] == []
+    assert result["readiness_computed_at"] == "2026-04-16T05:00:00+00:00"
+    assert result["recovery_source_at"] == "2026-04-16"
+    assert result["training_source_at"] == "2026-04-16"
 
 
 def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch):
@@ -120,6 +131,11 @@ def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch
             "hrv_today": 54.0,
             "rhr_today": 49.0,
         },
+        "source_timestamps": {
+            "recovery_source_at": "2026-05-02",
+            "training_source_at": "2026-05-02",
+            "timezone": "Europe/Moscow",
+        },
     }
     row = (
         "sergey",
@@ -128,13 +144,17 @@ def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch
         0.638,
         "Хорошая готовность",
         explanation,
+        datetime(2026, 5, 2, 5, tzinfo=timezone.utc),
     )
     fake_cursor = _FakeLatestCursor(row)
     fake_conn = _FakeLatestConn(fake_cursor)
 
     monkeypatch.setattr(readiness_query, "get_conn", lambda: fake_conn)
 
-    result = readiness_query.get_latest_readiness_daily(user_id="sergey")
+    result = readiness_query.get_latest_readiness_daily(
+        user_id="sergey",
+        evaluation_at=datetime(2026, 5, 2, 6, tzinfo=timezone.utc),
+    )
 
     assert result["ok"] is True
     assert result["user_id"] == "sergey"
@@ -154,12 +174,40 @@ def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch
     )
     assert result["briefing"] == "Сегодня хорошая готовность. Рекомендуется умеренная аэробная тренировка."
     assert result["briefing_text"] == result["briefing"]
+    assert result["freshness_state"] == "fresh"
+    assert result["freshness_reason_codes"] == []
+    assert result["readiness_computed_at"] == "2026-05-02T05:00:00+00:00"
+    assert result["recovery_source_at"] == "2026-05-02"
+    assert result["training_source_at"] == "2026-05-02"
 
     query, params = fake_cursor.execute_calls[0]
     assert "order by date desc" in query
     assert "limit 1" in query
     assert "date = %s" not in query
     assert params == ("sergey",)
+
+
+def test_date_specific_legacy_row_degrades_to_missing(monkeypatch):
+    row = (
+        "user-1",
+        date(2026, 4, 16),
+        69.2,
+        0.692,
+        "Хорошая готовность",
+        {"fallback_mode": None, "freshness_norm": 70.0},
+        datetime(2026, 4, 16, 5, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(readiness_query, "get_conn", lambda: _FakeConn(row))
+
+    result = readiness_query.get_readiness_daily_for_date(
+        user_id="user-1",
+        target_date="2026-04-16",
+    )
+
+    assert result["freshness_state"] == "missing"
+    assert result["freshness_reason_codes"][0] == "legacy_timestamp_snapshot_missing"
+    assert result["recovery_source_at"] is None
+    assert result["training_source_at"] is None
 
 
 def test_get_latest_readiness_daily_returns_404_when_no_rows(monkeypatch):

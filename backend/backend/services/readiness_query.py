@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
 
 from backend.db import get_conn
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.readiness_freshness import classify_readiness_freshness
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -41,8 +43,50 @@ def _derive_data_quality(explanation_json: Any) -> dict[str, str]:
     }
 
 
-def _build_readiness_daily_response(row: tuple[Any, ...]) -> dict[str, Any]:
-    db_user_id, db_date, readiness_score, good_day_probability, status_text, explanation_json = row
+def _serialize_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _build_readiness_daily_response(
+    row: tuple[Any, ...],
+    *,
+    evaluation_date: date | datetime | str,
+) -> dict[str, Any]:
+    (
+        db_user_id,
+        db_date,
+        readiness_score,
+        good_day_probability,
+        status_text,
+        explanation_json,
+        *optional_updated_at,
+    ) = row
+    readiness_computed_at = optional_updated_at[0] if optional_updated_at else None
+    explanation = _as_dict(explanation_json)
+    source_timestamps = _as_dict(explanation.get("source_timestamps"))
+    source_snapshot_missing = not source_timestamps
+    recovery_source_at = source_timestamps.get("recovery_source_at")
+    training_source_at = source_timestamps.get("training_source_at")
+    source_timezone = source_timestamps.get("timezone") or "UTC"
+    freshness = classify_readiness_freshness(
+        readiness_date=db_date,
+        readiness_computed_at=readiness_computed_at,
+        recovery_source_at=recovery_source_at,
+        training_source_at=training_source_at,
+        evaluation_date=evaluation_date,
+        timezone=source_timezone,
+        data_quality={"fallback_mode": explanation.get("fallback_mode")},
+    )
+    if source_snapshot_missing:
+        freshness["freshness_state"] = "missing"
+        freshness["freshness_reason_codes"] = [
+            "legacy_timestamp_snapshot_missing",
+            *freshness["freshness_reason_codes"],
+        ]
     decision = build_recommendation(
         readiness_score=readiness_score,
         explanation=explanation_json,
@@ -64,6 +108,10 @@ def _build_readiness_daily_response(row: tuple[Any, ...]) -> dict[str, Any]:
         "status_text": status_text,
         "explanation": explanation_json,
         "data_quality": _derive_data_quality(explanation_json),
+        **freshness,
+        "readiness_computed_at": _serialize_timestamp(readiness_computed_at),
+        "recovery_source_at": _serialize_timestamp(recovery_source_at),
+        "training_source_at": _serialize_timestamp(training_source_at),
         **decision,
         **briefing,
         "briefing_text": briefing["briefing"],
@@ -81,7 +129,8 @@ def get_readiness_daily_for_date(user_id: str, target_date: str) -> dict[str, An
                     readiness_score,
                     good_day_probability,
                     status_text,
-                    explanation_json
+                    explanation_json,
+                    updated_at
                 from readiness_daily
                 where user_id = %s
                   and date = %s
@@ -97,10 +146,19 @@ def get_readiness_daily_for_date(user_id: str, target_date: str) -> dict[str, An
             detail=f"readiness not found for user_id={user_id} date={target_date}",
         )
 
-    return _build_readiness_daily_response(row)
+    # A date-specific read evaluates the stored snapshot against its own target
+    # date, so historical rows do not age merely because they are viewed later.
+    return _build_readiness_daily_response(
+        row,
+        evaluation_date=row[1] or target_date,
+    )
 
 
-def get_latest_readiness_daily(user_id: str) -> dict[str, Any]:
+def get_latest_readiness_daily(
+    user_id: str,
+    *,
+    evaluation_at: datetime | None = None,
+) -> dict[str, Any]:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -111,7 +169,8 @@ def get_latest_readiness_daily(user_id: str) -> dict[str, Any]:
                     readiness_score,
                     good_day_probability,
                     status_text,
-                    explanation_json
+                    explanation_json,
+                    updated_at
                 from readiness_daily
                 where user_id = %s
                   and version = 'v2'
@@ -128,7 +187,10 @@ def get_latest_readiness_daily(user_id: str) -> dict[str, Any]:
             detail=f"latest readiness not found for user_id={user_id}",
         )
 
-    return _build_readiness_daily_response(row)
+    return _build_readiness_daily_response(
+        row,
+        evaluation_date=evaluation_at or datetime.now(timezone.utc),
+    )
 
 
 def get_readiness_daily_history(user_id: str, days: int) -> dict[str, Any]:

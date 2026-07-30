@@ -88,6 +88,11 @@ def test_recompute_readiness_daily_uses_full_formula_and_propagates_recovery_exp
     assert explanation_json["freshness_norm"] == 55.0
     assert explanation_json["recovery_score_simple"] == 70.0
     assert explanation_json["recovery_explanation"] == recovery_explanation
+    assert explanation_json["source_timestamps"] == {
+        "recovery_source_at": "2026-04-16",
+        "training_source_at": "2026-04-16",
+        "timezone": "UTC",
+    }
 
     assert len(fake_cursor.insert_params) == 1
     assert fake_conn.committed is True

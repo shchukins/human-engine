@@ -61,6 +61,11 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
   "readiness_score": 55.7,
   "good_day_probability": 0.557,
   "status_text": "Нормальная готовность",
+  "freshness_state": "fresh",
+  "freshness_reason_codes": [],
+  "readiness_computed_at": "2026-04-26T05:00:00+00:00",
+  "recovery_source_at": "2026-04-26",
+  "training_source_at": "2026-04-26",
   "data_quality": {
     "sleep": "ok",
     "hrv": "ok",
@@ -179,8 +184,76 @@ GET /api/v1/model/readiness-daily/{user_id}/latest
 - source of truth is `readiness_daily`
 - endpoint read-only и не создает новые rows
 - response includes `data_quality` derived from stored explanation payloads
+- response includes the backend-owned readiness source-data freshness contract
 - если rows отсутствуют, возвращается `404`
 - рекомендован для iOS Today screen вместо optimistic request на local today
+
+### Readiness source-data freshness contract
+
+The API fields `freshness_state` and `freshness_reason_codes` describe the
+currency of the source rows used to compute readiness. They do **not** describe
+the physiological load metric named `freshness`, which remains stored inside
+the model explanation and `load_state_daily_v2`.
+
+The source-data threshold is an exact user-day boundary:
+
+- a recovery or training/load source is current when its snapshotted source
+  date equals the readiness target `date`;
+- a source date before the target date is stale;
+- a missing or unusable source date is missing evidence;
+- `readiness_computed_at` must exist and must not precede the target user-day.
+
+The timezone is snapshotted from the latest stored HealthKit configuration when
+readiness is recomputed. If no HealthKit timezone exists, the deterministic
+fallback is `UTC`. Inputs such as `(GMT+00:00) UTC` use the trailing IANA zone
+name. The server's local timezone is never used.
+
+States:
+
+- `fresh`: readiness is for the current local evaluation date and both source
+  families are current;
+- `partial`: exactly one source family is absent under the existing
+  `recovery_only` or `load_only` fallback, and the available family is current;
+- `stale`: the latest readiness date or at least one available source/computation
+  date is older than its required day boundary;
+- `missing`: required evidence is absent or unusable. Legacy rows without
+  `explanation.source_timestamps` are always `missing`.
+
+Stable reason codes currently emitted:
+
+- `readiness_date_before_local_today`
+- `readiness_date_after_local_today`
+- `readiness_computed_at_missing`
+- `readiness_computed_at_before_readiness_date`
+- `recovery_source_missing`
+- `recovery_source_stale`
+- `recovery_source_after_readiness_date`
+- `training_source_missing`
+- `training_source_stale`
+- `training_source_after_readiness_date`
+- `legacy_timestamp_snapshot_missing`
+- `fallback_recovery_only`
+- `fallback_load_only`
+- `readiness_freshness_context_invalid`
+
+`readiness_computed_at` is sourced from `readiness_daily.updated_at`.
+`recovery_source_at` and `training_source_at` expose the stored source-row dates
+used by that computation. Date precision is intentional; the current derived
+source tables do not provide a more meaningful source event timestamp.
+
+For `latest`, the readiness date is compared with the current date in the
+snapshotted timezone. For the date-specific endpoint, freshness is evaluated
+relative to the requested readiness target date. Consequently, a correct
+historical snapshot does not become stale merely because it is viewed later.
+
+The history endpoint is unchanged and does not add freshness metadata to every
+point. This preserves its compact, backward-compatible trend contract.
+
+This contract is separate from:
+
+- model/load `freshness`: the physiological `fitness - fatigue_total` metric;
+- `data_quality`: completeness of individual recovery/training inputs;
+- model confidence: not represented by this freshness state.
 
 ---
 

@@ -279,6 +279,27 @@ Load model v2.
 - `explanation_json`
 - `version`
 
+`updated_at` is the public `readiness_computed_at` evidence. No schema migration
+is required for readiness source-data freshness. Each new computation stores an
+immutable-for-that-computation snapshot inside `explanation_json`:
+
+```json
+{
+  "source_timestamps": {
+    "recovery_source_at": "2026-05-02",
+    "training_source_at": "2026-05-02",
+    "timezone": "Europe/Moscow"
+  }
+}
+```
+
+The `*_source_at` values currently have date precision because they identify
+the exact daily derived rows consumed by readiness. They must not be interpreted
+as fabricated event timestamps. A recomputation replaces the snapshot together
+with the rest of `explanation_json`; historical API reads use the stored
+snapshot and never join newly arrived live source rows. Legacy rows without the
+section remain readable and are classified as `missing`.
+
 ---
 
 ### 5.9 `activity_subjective_feedback`

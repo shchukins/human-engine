@@ -132,6 +132,19 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
 
                 status_text = _describe_readiness_status(readiness_score)
 
+                cur.execute(
+                    """
+                    select timezone
+                    from healthkit_ingest_raw
+                    where user_id = %s
+                    order by received_at desc
+                    limit 1;
+                    """,
+                    (user_id,),
+                )
+                timezone_row = cur.fetchone()
+                source_timezone = timezone_row[0] if timezone_row else "UTC"
+
                 explanation_json = {
                     "fallback_mode": fallback_mode,
                     "freshness": freshness,
@@ -143,6 +156,12 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     },
                     "formula": "0.6 * freshness_norm + 0.4 * recovery_score_simple",
                     "recovery_explanation": recovery_explanation,
+                    "source_timestamps": {
+                        # These are source-row dates, not fabricated timestamps.
+                        "recovery_source_at": target_date if recovery_row else None,
+                        "training_source_at": target_date if load_row else None,
+                        "timezone": source_timezone,
+                    },
                 }
 
                 cur.execute(
