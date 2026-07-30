@@ -94,24 +94,10 @@ jobs:
           done
 
       - name: Apply DB schema
-        run: |
-            for f in ../db-init/*.sql; do
-              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-            done
+        run: bash tests/integration/bootstrap_schema.sh
 
-            for f in ../sql/ingestion/*.sql; do
-              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-            done
-
-            for f in ../sql/health/*.sql; do
-              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-            done
-
-            for f in ../sql/analytics/*.sql; do
-              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-            done
-
-            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f ../sql/scratch/sql_user_training_profile.sql
+      - name: Verify DB schema bootstrap is idempotent
+        run: bash tests/integration/bootstrap_schema.sh
 
       - name: Run DB integration tests
         run: |
