@@ -4,6 +4,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.db import get_conn
+from backend.services.activity_deduplication_service import (
+    DELIVERY_TRAINING_PROCESSED,
+    claim_activity_delivery,
+    get_activity_deduplication_state,
+    mark_activity_delivery_sent,
+    release_activity_delivery_claim,
+)
 from backend.services.activity_load_service import resolve_activity_load
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
 from backend.services.subjective_feedback_service import send_post_ride_rpe_request
@@ -349,7 +356,7 @@ def build_readiness_briefing_message(
     freshness_label = _healthkit_freshness_label(data_freshness)
 
     lines = [
-        "Human Engine · Today",
+        "WHATTE · Today",
         "",
         f"Дата briefing: {notification_date}",
         f"Дата recovery-данных: {recovery_date}",
@@ -508,7 +515,7 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
             state_row = cur.fetchone()
 
     if not activity_row:
-        return f"Human Engine\n\nТренировка обработана\nactivity_id={activity_id}"
+        return f"WHATTE\n\nТренировка обработана\nactivity_id={activity_id}"
 
     (
         name,
@@ -546,7 +553,7 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
 
     if not load_info["load_model_included"]:
         lines = [
-            "Human Engine",
+            "WHATTE",
             "",
             "✅ Тренировка обработана",
             f"{name or 'Без названия'}",
@@ -594,7 +601,7 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
     workout_comment = build_workout_comment(workout_type, tss)
 
     lines = [
-        "Human Engine",
+        "WHATTE",
         "",
         "✅ Тренировка обработана",
         f"{name or 'Без названия'}",
@@ -790,7 +797,7 @@ def build_daily_readiness_message(
 
     if not row:
         return (
-            "Human Engine\n\n"
+            "WHATTE\n\n"
             "📅 Daily Readiness Summary\n"
             f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}\n"
             "Недостаточно данных для расчета состояния"
@@ -823,7 +830,7 @@ def build_daily_readiness_message(
     )
 
     lines = [
-        "Human Engine",
+        "WHATTE",
         "",
         "📅 Daily Readiness Summary",
         f"Дата briefing: {notification_date or date}",
@@ -851,10 +858,48 @@ def build_daily_readiness_message(
     return "\n".join(lines)
 
 
-def notify_training_processed(user_id: str, activity_id: int) -> None:
-    text = build_training_processed_message(user_id=user_id, activity_id=activity_id)
-    send_telegram_message(text)
-    send_post_ride_rpe_request(activity_id)
+def notify_training_processed(user_id: str, activity_id: int) -> bool:
+    state = get_activity_deduplication_state(activity_id)
+    if state["is_excluded"]:
+        return False
+
+    canonical_activity_id = state["canonical_activity_id"]
+    claimed = claim_activity_delivery(
+        user_id=user_id,
+        canonical_activity_id=canonical_activity_id,
+        delivery_type=DELIVERY_TRAINING_PROCESSED,
+    )
+    if not claimed:
+        return False
+
+    delivered = False
+    try:
+        text = build_training_processed_message(
+            user_id=user_id,
+            activity_id=canonical_activity_id,
+        )
+        response = send_telegram_message(text)
+        delivered = True
+        message_id = (
+            response.get("result", {}).get("message_id")
+            if isinstance(response, dict)
+            else None
+        )
+        mark_activity_delivery_sent(
+            canonical_activity_id=canonical_activity_id,
+            delivery_type=DELIVERY_TRAINING_PROCESSED,
+            telegram_message_id=message_id,
+            payload={"message": text, "source_activity_id": activity_id},
+        )
+        send_post_ride_rpe_request(canonical_activity_id)
+    except Exception:
+        if not delivered:
+            release_activity_delivery_claim(
+                canonical_activity_id=canonical_activity_id,
+                delivery_type=DELIVERY_TRAINING_PROCESSED,
+            )
+        raise
+    return True
 
 def claim_daily_readiness(
     user_id: str,

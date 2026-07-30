@@ -26,6 +26,8 @@ def recompute_daily_load_all(user_id: str) -> dict:
                   on r.strava_activity_id = m.strava_activity_id
                 where m.user_id = %s
                   and m.version = 'v1'
+                  and r.is_deleted = false
+                  and r.is_excluded = false
                 order by day asc;
                 """,
                 (user_id,),

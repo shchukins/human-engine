@@ -25,7 +25,31 @@ create table if not exists strava_activity_raw (
     raw_json jsonb not null,
     fetched_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    is_deleted boolean not null default false
+    is_deleted boolean not null default false,
+    duplicate_of_activity_id bigint,
+    is_excluded boolean not null default false,
+    exclusion_reason text,
+    duplicate_confidence double precision,
+    duplicate_reason jsonb,
+    duplicate_detected_at timestamptz,
+    duplicate_detection_version text,
+    deduplication_manual_override text,
+    duplicate_candidate_activity_id bigint,
+    constraint chk_strava_activity_raw_not_self_duplicate
+        check (
+            duplicate_of_activity_id is null
+            or duplicate_of_activity_id <> strava_activity_id
+        ),
+    constraint chk_strava_activity_raw_duplicate_confidence
+        check (
+            duplicate_confidence is null
+            or duplicate_confidence between 0.0 and 1.0
+        ),
+    constraint chk_strava_activity_raw_manual_override
+        check (
+            deduplication_manual_override is null
+            or deduplication_manual_override in ('exclude', 'separate')
+        )
 );
 
 create unique index if not exists uq_strava_activity_raw_activity_id
@@ -36,3 +60,14 @@ create index if not exists ix_strava_activity_raw_user_id_start_date
 
 create index if not exists ix_strava_activity_raw_athlete_id_start_date
     on strava_activity_raw (strava_athlete_id, start_date desc);
+
+create index if not exists ix_strava_activity_raw_user_dedup_candidates
+    on strava_activity_raw (user_id, start_date)
+    where is_deleted = false;
+
+create index if not exists ix_strava_activity_raw_duplicate_of
+    on strava_activity_raw (duplicate_of_activity_id)
+    where duplicate_of_activity_id is not null;
+
+create index if not exists ix_strava_activity_raw_excluded
+    on strava_activity_raw (user_id, is_excluded, start_date);

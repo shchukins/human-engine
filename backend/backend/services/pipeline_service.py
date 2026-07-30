@@ -1,12 +1,15 @@
 import json
+from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
 
 from backend.db import get_conn
+from backend.services.activity_deduplication_service import (
+    detect_and_apply_duplicate,
+    recompute_after_activity_state_change,
+)
 from backend.services.activity_load_service import resolve_activity_load
-from backend.services.fitness_service import recompute_fitness_state
-from backend.services.load_service import recompute_daily_load_all
 from backend.services.metrics_service import (
     compute_deltas,
     compute_hr_zones,
@@ -508,11 +511,19 @@ def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -
         intensity_factor=metrics_result["intensity_factor"],
     )
 
-    # Пересчитываем дневную нагрузку по реальным датам тренировок
-    load_result = recompute_daily_load_all(user_id)
-
-    # Пересчитываем fitness / fatigue / freshness по календарному ряду
-    fitness_result = recompute_fitness_state(user_id)
+    deduplication_result = detect_and_apply_duplicate(activity_id)
+    start_date = activity.get("start_date")
+    affected_date = (
+        datetime.fromisoformat(start_date.replace("Z", "+00:00")).date()
+        if isinstance(start_date, str)
+        else None
+    )
+    recompute_result = recompute_after_activity_state_change(
+        user_id,
+        affected_date,
+    )
+    load_result = recompute_result["load"]
+    fitness_result = recompute_result["fitness"]
 
     return {
         "ok": True,
@@ -523,6 +534,7 @@ def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -
         "tss": metrics_result["tss"],
         "load_source": load_info["load_source"],
         "load_model_included": load_info["load_model_included"],
+        "deduplication": deduplication_result,
         "load_days_processed": load_result["days_processed"],
         "fitness_days_processed": fitness_result["days_processed"],
         "last_freshness_signal": fitness_result["last_freshness_signal"],

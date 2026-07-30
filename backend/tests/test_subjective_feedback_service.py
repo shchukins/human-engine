@@ -1,3 +1,5 @@
+import json
+
 import requests
 from fastapi.testclient import TestClient
 
@@ -119,6 +121,11 @@ def test_build_next_day_recovery_keyboard_uses_expected_score_mapping():
 
 
 def test_upsert_activity_subjective_feedback_inserts_with_context_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        feedback_service,
+        "resolve_canonical_activity",
+        lambda activity_id: activity_id,
+    )
     user_cursor = _FakeCursor([("user-1",)])
     readiness_cursor = _FakeCursor(
         [
@@ -189,12 +196,20 @@ def test_upsert_activity_subjective_feedback_inserts_with_context_snapshot(monke
         "recovery_score": 71.0,
         "recovery_explanation": {"sleep_score": 74.0},
     }
-    assert write_cursor.execute_calls[1][1][7] == "v1_extensible"
-    assert write_cursor.execute_calls[1][1][8] == "{}"
-    assert '"snapshot_date": "2026-05-14"' in write_cursor.execute_calls[1][1][9]
+    assert write_cursor.execute_calls[1][1][8] == "v1_extensible"
+    assert json.loads(write_cursor.execute_calls[1][1][9]) == {
+        "source_activity_id": 17855535922,
+        "canonical_activity_id": 17855535922,
+    }
+    assert '"snapshot_date": "2026-05-14"' in write_cursor.execute_calls[1][1][10]
 
 
 def test_upsert_activity_subjective_feedback_persists_payload_and_activity_date(monkeypatch):
+    monkeypatch.setattr(
+        feedback_service,
+        "resolve_canonical_activity",
+        lambda activity_id: activity_id,
+    )
     user_cursor = _FakeCursor([("user-1",)])
     readiness_cursor = _FakeCursor(
         [
@@ -253,11 +268,21 @@ def test_upsert_activity_subjective_feedback_persists_payload_and_activity_date(
     assert result["was_update"] is False
     assert result["activity_date"] == "2026-05-14"
     assert result["feedback_payload"] == {"legs_fatigue": 2, "motivation": 4}
-    assert write_cursor.execute_calls[1][1][2] == "2026-05-14"
-    assert write_cursor.execute_calls[1][1][8] == '{"legs_fatigue": 2, "motivation": 4}'
+    assert write_cursor.execute_calls[1][1][3] == "2026-05-14"
+    assert json.loads(write_cursor.execute_calls[1][1][9]) == {
+        "legs_fatigue": 2,
+        "motivation": 4,
+        "source_activity_id": 17855535922,
+        "canonical_activity_id": 17855535922,
+    }
 
 
 def test_upsert_activity_subjective_feedback_updates_existing_row(monkeypatch):
+    monkeypatch.setattr(
+        feedback_service,
+        "resolve_canonical_activity",
+        lambda activity_id: activity_id,
+    )
     user_cursor = _FakeCursor([("user-1",)])
     readiness_cursor = _FakeCursor(
         [
@@ -571,7 +596,7 @@ def test_send_next_day_recovery_prompt_sends_when_previous_day_has_training(monk
     ]
     assert sent_messages == [
         (
-            "Human Engine\n\nHow recovered do you feel today?\n\nThis helps calibrate readiness after yesterday's training.",
+            "WHATTE\n\nHow recovered do you feel today?\n\nThis helps calibrate readiness after yesterday's training.",
             feedback_service.build_next_day_recovery_keyboard("user-1", "2026-05-15"),
         )
     ]
@@ -663,7 +688,7 @@ def test_handle_telegram_feedback_callback_best_effort_when_telegram_ack_fails(m
 
     assert result["ok"] is True
     assert result["activity_id"] == 17855535922
-    assert edit_calls == [(9001, 77, "Feedback recorded ✓")]
+    assert edit_calls == [(9001, 77, "WHATTE\n\nFeedback recorded ✓")]
     assert logged_events == [
         (
             "telegram_callback_ack_failed",
@@ -746,7 +771,7 @@ def test_handle_telegram_recovery_callback_best_effort_when_telegram_edit_fails(
                 "level": 30,
                 "chat_id": 9001,
                 "message_id": 88,
-                "message_text": "Recovery feedback recorded ✓",
+                    "message_text": "WHATTE\n\nRecovery feedback recorded ✓",
                 "activity_id": None,
                 "user_id": "user-1",
                 "activity_date": "2026-05-15",
@@ -817,8 +842,8 @@ def test_handle_telegram_feedback_callback_is_safe_for_duplicate_callbacks(monke
         ("cb-1", "Feedback recorded."),
     ]
     assert edited_messages == [
-        (9001, 77, "Feedback recorded ✓"),
-        (9001, 77, "Feedback recorded ✓"),
+        (9001, 77, "WHATTE\n\nFeedback recorded ✓"),
+        (9001, 77, "WHATTE\n\nFeedback recorded ✓"),
     ]
 
 
@@ -1145,8 +1170,8 @@ def test_handle_telegram_recovery_callback_is_safe_for_duplicate_callbacks(monke
         ("cb-1", "Feedback recorded."),
     ]
     assert edited_messages == [
-        (9001, 88, "Recovery feedback recorded ✓"),
-        (9001, 88, "Recovery feedback recorded ✓"),
+        (9001, 88, "WHATTE\n\nRecovery feedback recorded ✓"),
+        (9001, 88, "WHATTE\n\nRecovery feedback recorded ✓"),
     ]
 
 
@@ -1180,5 +1205,3 @@ def test_debug_recovery_prompt_batch_endpoint_returns_scheduler_payload(monkeypa
         "failed_count": 0,
         "results": [{"user_id": "user-1", "ok": True, "skipped": False, "reason": None}],
     }
-
-

@@ -162,3 +162,18 @@ def test_recompute_daily_load_all_counts_only_supported_load_activities(monkeypa
         ("user-1", "2026-04-17", 1, 5400.0, 45000.0, 500.0, 900.0, 72.5)
     ]
     assert fake_conn.committed is True
+
+
+def test_recompute_daily_load_all_excludes_deduplicated_rows_in_sql(monkeypatch):
+    fake_cursor = _FakeCursor([])
+    fake_conn = _FakeConn(fake_cursor)
+    monkeypatch.setattr(load_service, "get_conn", lambda: fake_conn)
+
+    try:
+        load_service.recompute_daily_load_all(user_id="user-1")
+    except Exception:
+        pass
+
+    select_query = fake_cursor.executed[0][0]
+    assert "r.is_deleted = false" in select_query
+    assert "r.is_excluded = false" in select_query

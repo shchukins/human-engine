@@ -966,7 +966,9 @@ def debug_compute_daily_load(user_id: str, date_str: str):
                       on r.strava_activity_id = m.strava_activity_id
                     where m.user_id = %s
                       and date(r.start_date) = %s::date
-                      and m.version = 'v1';
+                      and m.version = 'v1'
+                      and r.is_deleted = false
+                      and r.is_excluded = false;
                     """,
                     (user_id, date_str),
                 )

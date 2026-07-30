@@ -276,7 +276,7 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
     )
 
     assert message == (
-        "Human Engine · Today\n\n"
+        "WHATTE · Today\n\n"
         "Дата briefing: 2026-04-17\n"
         "Дата recovery-данных: 2026-04-17\n"
         "Данные HealthKit: отсутствуют\n\n"
@@ -361,7 +361,7 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
     )
 
     assert message == (
-        "Human Engine · Today\n\n"
+        "WHATTE · Today\n\n"
         "Дата briefing: 2026-04-17\n"
         "Дата recovery-данных: 2026-04-17\n"
         "Данные HealthKit: свежие\n\n"
@@ -765,6 +765,24 @@ def test_notify_training_processed_sends_feedback_prompt(monkeypatch):
     monkeypatch.setattr(
         "backend.services.notification_service.send_post_ride_rpe_request",
         lambda activity_id: feedback_prompts.append(activity_id),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.get_activity_deduplication_state",
+        lambda activity_id: {
+            "activity_id": activity_id,
+            "canonical_activity_id": activity_id,
+            "user_id": "user-1",
+            "is_excluded": False,
+            "exclusion_reason": None,
+        },
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_activity_delivery",
+        lambda **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.mark_activity_delivery_sent",
+        lambda **kwargs: None,
     )
 
     notify_training_processed(user_id="user-1", activity_id=43)

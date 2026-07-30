@@ -110,9 +110,29 @@
 
 - источник для downstream расчетов
 
+Поля дедупликации (migration `007`):
+
+- `duplicate_of_activity_id` связывает исключённую запись с canonical Strava
+  activity; для автоматической MyWhoosh/Garmin пары canonical всегда MyWhoosh
+- `is_excluded` и `exclusion_reason` управляют включением в агрегаты
+- confidence, reason, detection timestamp/version сохраняют audit trail
+- manual override и candidate id сохраняют ручное exclude/separate решение
+
+`activity_metrics` дубля физически сохраняются. Запрос
+`daily_training_load` фильтрует `is_excluded = false`, поэтому fitness,
+load-state, freshness и readiness получают одну физическую тренировку.
+
 ---
 
-### 4.4 `healthkit_ingest_raw`
+### 4.4 `activity_delivery_log`
+
+Per-activity ledger для идемпотентной доставки `training_processed` и
+`post_ride_rpe`. Unique key: `(activity_id, delivery_type)`, где activity id
+разрешён до canonical.
+
+---
+
+### 4.5 `healthkit_ingest_raw`
 
 Сырой payload HealthKit sync.
 
@@ -321,6 +341,8 @@ section remain readable and are classified as `missing`.
 
 - `user_id`
 - `strava_activity_id` nullable для date-level feedback
+- `canonical_activity_id` для аналитической связи с canonical workout при
+  сохранении исходного callback target
 - `activity_date`
 - `feedback_type`
 - `feedback_value`

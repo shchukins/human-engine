@@ -321,6 +321,11 @@ Fallback:
 
 После `notify_training_processed` backend отправляет второе Telegram message с inline RPE buttons.
 
+Перед обеими отправками backend разрешает canonical activity. Исключённый дубль
+не отправляется, а unique claims в `activity_delivery_log` обеспечивают
+идемпотентность при webhook retry/update/backfill и при любом порядке прихода
+MyWhoosh/Garmin.
+
 Текущий callback format:
 
 - `rpe:{activity_id}:{score}`
@@ -328,12 +333,18 @@ Fallback:
 После callback backend:
 
 - валидирует activity
+- разрешает старый Garmin activity id до canonical MyWhoosh id
 - upsert-ит row в `activity_subjective_feedback`
 - сохраняет `source = telegram`
 - сохраняет `feedback_schema_version = v1_extensible`
 - сохраняет optional `feedback_payload` (для текущего RPE обычно `{}`)
 - сохраняет snapshot readiness / recommendation context
 - best-effort подтверждает callback и редактирует сообщение
+
+Indoor дедупликация запускается после сохранения raw/metrics и до пересчёта
+агрегатов. Она использует фактические интервалы тренировок, source metadata и
+именованные overlap/duration/start thresholds. Garmin остаётся в raw и metrics,
+но получает `is_excluded=true`; `daily_training_load` исключает такую запись.
 
 ## Telegram next-day recovery feedback
 

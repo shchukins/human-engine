@@ -9,6 +9,17 @@ import requests
 
 from backend.core.logging import log_event
 from backend.db import get_conn
+from backend.services.activity_deduplication_service import (
+    DELIVERY_POST_RIDE_RPE,
+    claim_activity_delivery,
+    get_activity_deduplication_state,
+    mark_activity_delivery_sent,
+    mark_activities_separate,
+    resolve_canonical_activity,
+    release_activity_delivery_claim,
+    restore_manual_exclusion,
+    set_manual_exclusion,
+)
 from backend.services.decision_engine import build_recommendation
 from backend.services.telegram_service import (
     answer_telegram_callback,
@@ -31,8 +42,9 @@ PROMPT_STATUS_SENT = "sent"
 PROMPT_STATUS_FAILED = "failed"
 RPE_CALLBACK_PREFIX = "rpe"
 RECOVERY_CALLBACK_PREFIX = "recovery"
-RPE_CONFIRMATION_TEXT = "Feedback recorded ✓"
-RECOVERY_CONFIRMATION_TEXT = "Recovery feedback recorded ✓"
+DEDUPLICATION_CALLBACK_PREFIX = "dedup"
+RPE_CONFIRMATION_TEXT = "WHATTE\n\nFeedback recorded ✓"
+RECOVERY_CONFIRMATION_TEXT = "WHATTE\n\nRecovery feedback recorded ✓"
 
 RPE_SCORE_TO_VALUE = {
     1: "very_easy",
@@ -161,6 +173,28 @@ def parse_recovery_callback_data(data: str | None) -> dict[str, Any] | None:
     }
 
 
+def build_deduplication_callback_data(action: str, activity_id: int) -> str:
+    if action not in {"exclude", "separate", "restore"}:
+        raise ValueError(f"unsupported deduplication action: {action}")
+    return f"{DEDUPLICATION_CALLBACK_PREFIX}:{action}:{activity_id}"
+
+
+def parse_deduplication_callback_data(data: str | None) -> dict[str, Any] | None:
+    if not data:
+        return None
+    parts = data.split(":")
+    if len(parts) != 3 or parts[0] != DEDUPLICATION_CALLBACK_PREFIX:
+        return None
+    action = parts[1]
+    try:
+        activity_id = int(parts[2])
+    except ValueError:
+        return None
+    if action not in {"exclude", "separate", "restore"} or activity_id <= 0:
+        return None
+    return {"action": action, "activity_id": activity_id}
+
+
 def build_post_ride_rpe_message(activity_id: int) -> str:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -181,7 +215,7 @@ def build_post_ride_rpe_message(activity_id: int) -> str:
             row = cur.fetchone()
 
     if not row:
-        return "Ride recorded 🚴\n\nHow did the ride feel?"
+        return "WHATTE\n\nRide recorded 🚴\n\nHow did the ride feel?"
 
     duration_s, tss, avg_power = row
 
@@ -192,7 +226,7 @@ def build_post_ride_rpe_message(activity_id: int) -> str:
     power_text = "n/a" if avg_power is None else f"{round(float(avg_power))}w"
 
     return (
-        "Ride recorded 🚴\n\n"
+        "WHATTE\n\nRide recorded 🚴\n\n"
         f"Duration: {duration_text}\n"
         f"Load: {load_text}\n"
         f"Avg power: {power_text}\n\n"
@@ -202,7 +236,7 @@ def build_post_ride_rpe_message(activity_id: int) -> str:
 
 def build_next_day_recovery_message() -> str:
     return (
-        "Human Engine\n\n"
+        "WHATTE\n\n"
         "How recovered do you feel today?\n\n"
         "This helps calibrate readiness after yesterday's training."
     )
@@ -236,11 +270,62 @@ def build_next_day_recovery_keyboard(user_id: str, target_date: str | date) -> d
     }
 
 
-def send_post_ride_rpe_request(activity_id: int) -> None:
-    send_telegram_message(
-        build_post_ride_rpe_message(activity_id),
-        reply_markup=build_post_ride_rpe_keyboard(activity_id),
+def send_post_ride_rpe_request(activity_id: int) -> bool:
+    state = get_activity_deduplication_state(activity_id)
+    if state["is_excluded"]:
+        return False
+    canonical_activity_id = state["canonical_activity_id"]
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select 1
+                from activity_subjective_feedback
+                where canonical_activity_id = %s
+                  and feedback_type = %s
+                limit 1;
+                """,
+                (canonical_activity_id, FEEDBACK_TYPE_POST_RIDE_RPE),
+            )
+            if cur.fetchone() is not None:
+                return False
+
+    claimed = claim_activity_delivery(
+        user_id=state["user_id"],
+        canonical_activity_id=canonical_activity_id,
+        delivery_type=DELIVERY_POST_RIDE_RPE,
     )
+    if not claimed:
+        return False
+
+    delivered = False
+    try:
+        text = build_post_ride_rpe_message(canonical_activity_id)
+        response = send_telegram_message(
+            text,
+            reply_markup=build_post_ride_rpe_keyboard(canonical_activity_id),
+        )
+        delivered = True
+        message_id = (
+            response.get("result", {}).get("message_id")
+            if isinstance(response, dict)
+            else None
+        )
+        mark_activity_delivery_sent(
+            canonical_activity_id=canonical_activity_id,
+            delivery_type=DELIVERY_POST_RIDE_RPE,
+            telegram_message_id=message_id,
+            payload={"message": text, "source_activity_id": activity_id},
+        )
+    except Exception:
+        if not delivered:
+            release_activity_delivery_claim(
+                canonical_activity_id=canonical_activity_id,
+                delivery_type=DELIVERY_POST_RIDE_RPE,
+            )
+        raise
+    return True
 
 
 def _load_activity_user_id(activity_id: int) -> str | None:
@@ -285,6 +370,8 @@ def _load_recovery_prompt_context(user_id: str, recovery_date: str | date) -> di
                 from strava_activity_raw
                 where user_id = %s
                   and date(start_date) = %s
+                  and is_deleted = false
+                  and is_excluded = false
                 order by start_date asc;
                 """,
                 (user_id, previous_day),
@@ -650,6 +737,7 @@ def upsert_subjective_feedback(
     feedback_value: str,
     score: int,
     activity_id: int | None = None,
+    canonical_activity_id: int | None = None,
     activity_date: str | date | None = None,
     source: str = FEEDBACK_SOURCE_TELEGRAM,
     payload: dict[str, Any] | None = None,
@@ -669,11 +757,11 @@ def upsert_subjective_feedback(
                     """
                     select id
                     from activity_subjective_feedback
-                    where strava_activity_id = %s
+                    where canonical_activity_id = %s
                       and feedback_type = %s
                     limit 1;
                     """,
-                    (activity_id, feedback_type),
+                    (canonical_activity_id or activity_id, feedback_type),
                 )
             else:
                 cur.execute(
@@ -697,6 +785,7 @@ def upsert_subjective_feedback(
                     insert into activity_subjective_feedback (
                         user_id,
                         strava_activity_id,
+                        canonical_activity_id,
                         activity_date,
                         feedback_type,
                         feedback_value,
@@ -715,10 +804,11 @@ def upsert_subjective_feedback(
                         %s,
                         %s,
                         %s,
+                        %s,
                         %s::jsonb,
                         %s::jsonb
                     )
-                    on conflict (strava_activity_id, feedback_type) where strava_activity_id is not null do update set
+                    on conflict (canonical_activity_id, feedback_type) where canonical_activity_id is not null do update set
                         user_id = excluded.user_id,
                         activity_date = coalesce(excluded.activity_date, activity_subjective_feedback.activity_date),
                         feedback_value = excluded.feedback_value,
@@ -746,6 +836,7 @@ def upsert_subjective_feedback(
                     (
                         user_id,
                         activity_id,
+                        canonical_activity_id or activity_id,
                         normalized_activity_date,
                         feedback_type,
                         feedback_value,
@@ -822,6 +913,7 @@ def upsert_subjective_feedback(
             conn.commit()
 
     result = _build_feedback_row_result(row, was_update=was_update)
+    result["canonical_activity_id"] = canonical_activity_id
 
     log_event(
         logger,
@@ -850,16 +942,25 @@ def upsert_activity_subjective_feedback(
     user_id = _load_activity_user_id(activity_id)
     if not user_id:
         raise ValueError(f"activity not found: {activity_id}")
+    canonical_activity_id = resolve_canonical_activity(activity_id)
+    feedback_payload = dict(payload or {})
+    feedback_payload.update(
+        {
+            "source_activity_id": activity_id,
+            "canonical_activity_id": canonical_activity_id,
+        }
+    )
 
     return upsert_subjective_feedback(
         user_id=user_id,
         activity_id=activity_id,
+        canonical_activity_id=canonical_activity_id,
         activity_date=activity_date,
         feedback_type=FEEDBACK_TYPE_POST_RIDE_RPE,
         feedback_value=map_rpe_score_to_value(score),
         score=score,
         source=source,
-        payload=payload,
+        payload=feedback_payload,
         context=build_feedback_context_snapshot(user_id),
         feedback_schema_version=feedback_schema_version,
     )
@@ -1051,6 +1152,8 @@ def list_recovery_prompt_candidate_users(target_date: str | date) -> list[str]:
                     select distinct user_id
                     from strava_activity_raw
                     where date(start_date) = %s
+                      and is_deleted = false
+                      and is_excluded = false
                 )
                 select user_id
                 from candidate_users
@@ -1139,6 +1242,53 @@ def handle_telegram_feedback_callback(payload: dict[str, Any]) -> dict[str, Any]
     chat = callback_message.get("chat") or {}
     chat_id = chat.get("id")
     message_id = callback_message.get("message_id")
+
+    deduplication_action = parse_deduplication_callback_data(callback_data)
+    if deduplication_action is not None:
+        action_handlers = {
+            "exclude": set_manual_exclusion,
+            "separate": mark_activities_separate,
+            "restore": restore_manual_exclusion,
+        }
+        try:
+            state = action_handlers[deduplication_action["action"]](
+                deduplication_action["activity_id"]
+            )
+        except ValueError as exc:
+            if callback_query_id:
+                _safe_answer_telegram_callback(
+                    callback_query_id,
+                    text=str(exc),
+                    activity_id=deduplication_action["activity_id"],
+                    source=FEEDBACK_SOURCE_TELEGRAM,
+                )
+            return {"ok": False, "reason": "deduplication_action_rejected"}
+
+        state_text = (
+            "исключена из расчётов"
+            if state["is_excluded"]
+            else "учитывается отдельно"
+        )
+        confirmation = (
+            f"WHATTE\n\nАктивность {state['activity_id']} {state_text}.\n"
+            f"Canonical activity: {state['canonical_activity_id']}"
+        )
+        if callback_query_id:
+            _safe_answer_telegram_callback(
+                callback_query_id,
+                text="Activity state updated.",
+                activity_id=state["activity_id"],
+                source=FEEDBACK_SOURCE_TELEGRAM,
+            )
+        if chat_id is not None and message_id is not None:
+            _safe_edit_telegram_message(
+                chat_id,
+                message_id,
+                confirmation,
+                activity_id=state["activity_id"],
+                source=FEEDBACK_SOURCE_TELEGRAM,
+            )
+        return {"ok": True, "deduplication": state}
 
     parsed = parse_rpe_callback_data(callback_data) or parse_recovery_callback_data(callback_data)
     if not parsed:

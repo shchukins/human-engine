@@ -67,6 +67,7 @@ class DashboardStravaActivityRow:
     moving_time: str
     elapsed_time: str
     received_at_moscow: str
+    deduplication_state: str = "included"
 
 
 @dataclass(frozen=True)
@@ -293,7 +294,9 @@ def get_dashboard_strava_activities_status() -> DashboardStravaActivitiesStatus:
                             elapsed_time_s,
                             nullif(raw_json ->> 'elapsed_time', '')::integer
                         ) as activity_elapsed_time_s,
-                        coalesce(updated_at, fetched_at) as activity_received_at
+                        coalesce(updated_at, fetched_at) as activity_received_at,
+                        is_excluded,
+                        duplicate_of_activity_id
                     from strava_activity_raw
                     order by start_date desc nulls last, updated_at desc, id desc
                     limit %s;
@@ -312,6 +315,13 @@ def get_dashboard_strava_activities_status() -> DashboardStravaActivitiesStatus:
                 moving_time=_format_duration_seconds(row[5]),
                 elapsed_time=_format_duration_seconds(row[6]),
                 received_at_moscow=_format_moscow_timestamp(row[7]),
+                deduplication_state=(
+                    f"duplicate of {row[9]}"
+                    if len(row) > 9 and row[8] and row[9] is not None
+                    else "excluded"
+                    if len(row) > 8 and row[8]
+                    else "included"
+                ),
             )
             for row in rows
         ]
