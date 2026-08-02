@@ -277,8 +277,11 @@ Daily Telegram briefing в текущем backend использует `readines
 Основной утренний триггер — успешный HealthKit full-sync, который содержит
 sleep, HRV или resting HR за локальную текущую дату и завершил пересчет
 recovery/readiness. Настраиваемое расписание
-`DAILY_READINESS_FALLBACK_HOUR_UTC` используется только как fallback, если
-fresh sync не отправил briefing раньше.
+`DAILY_READINESS_FALLBACK_HOUR_UTC` и
+`DAILY_READINESS_FALLBACK_MINUTE_UTC` задают fallback time (по умолчанию
+`07:30 UTC`), если fresh sync не отправил briefing раньше. Минутная отсрочка
+дает iPhone дополнительное окно для утренней синхронизации, но корректность не
+зависит от этого grace period.
 
 Freshness состояния:
 
@@ -286,9 +289,11 @@ Freshness состояния:
 - `stale` — последний доступный recovery относится к более ранней дате
 - `missing` — recovery данных нет
 
-Сообщение явно показывает freshness HealthKit данных. Дневной unique claim в
-`notification_log` обеспечивает at-most-once отправку при повторных sync и
-конкуренции event/fallback триггеров.
+Сообщение явно показывает freshness HealthKit данных. Дневной unique row в
+`notification_log` сериализует event/fallback триггеры. Одинаковые или более
+старые версии дают no-op; stale briefing обновляется через Telegram
+`editMessageText`, а при невозможности edit создается ровно одно отдельное
+update-сообщение.
 
 Основные поля:
 

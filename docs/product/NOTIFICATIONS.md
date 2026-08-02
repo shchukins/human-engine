@@ -65,10 +65,28 @@ Source of truth:
 
 - основной: успешный HealthKit full-sync с recovery-сигналом за локальную
   текущую дату после recompute recovery/readiness
-- fallback: worker в `DAILY_READINESS_FALLBACK_HOUR_UTC` (по умолчанию `7`)
+- fallback: worker не раньше
+  `DAILY_READINESS_FALLBACK_HOUR_UTC:DAILY_READINESS_FALLBACK_MINUTE_UTC`
+  (по умолчанию `07:30 UTC`)
 
-Fallback и повторные sync используют один daily atomic claim в
-`notification_log`, поэтому отправка выполняется не более одного раза в день.
+Fallback и повторные sync используют один daily row в `notification_log`.
+Обычное сообщение создается не более одного раза, но row допускает монотонное
+обновление delivered content. PostgreSQL advisory lock на
+`(user_id, notification_date)` сериализует полный Telegram lifecycle, поэтому
+fresh sync не теряется за одновременно выполняющимся stale fallback:
+
+```text
+нет delivery -> sent
+stale/missing -> fresh или более новая recovery_date -> updated
+editMessageText недоступен -> superseded одним update-сообщением
+тот же recovery_date + freshness + fingerprint -> no-op
+более старые или менее свежие данные -> no-op
+```
+
+Изменение score/explanation/recommendation при той же recovery date приводит к
+update только при изменении SHA-256 fingerprint полного briefing text.
+`telegram_chat_id` и `telegram_message_id` сохраняются для последующего
+`editMessageText`.
 
 HealthKit freshness в сообщении:
 

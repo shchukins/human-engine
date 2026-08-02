@@ -14,13 +14,17 @@ logger = logging.getLogger(__name__)
 
 DAILY_READINESS_USER_ID = settings.daily_readiness_user_id
 DAILY_READINESS_FALLBACK_HOUR_UTC = settings.daily_readiness_fallback_hour_utc
+DAILY_READINESS_FALLBACK_MINUTE_UTC = settings.daily_readiness_fallback_minute_utc
 NEXT_DAY_RECOVERY_PROMPT_HOUR_UTC = settings.next_day_recovery_prompt_hour_utc
 
 
 def maybe_send_daily_readiness() -> None:
     now = datetime.now(timezone.utc)
 
-    if now.hour != DAILY_READINESS_FALLBACK_HOUR_UTC:
+    if (
+        now.hour != DAILY_READINESS_FALLBACK_HOUR_UTC
+        or now.minute < DAILY_READINESS_FALLBACK_MINUTE_UTC
+    ):
         return
 
     sent = send_daily_readiness(

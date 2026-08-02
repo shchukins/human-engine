@@ -36,5 +36,11 @@ class Settings(BaseSettings):
         le=23,
         alias="DAILY_READINESS_FALLBACK_HOUR_UTC",
     )
+    daily_readiness_fallback_minute_utc: int = Field(
+        default=30,
+        ge=0,
+        le=59,
+        alias="DAILY_READINESS_FALLBACK_MINUTE_UTC",
+    )
 
 settings = Settings()
