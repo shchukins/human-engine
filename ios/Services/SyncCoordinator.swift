@@ -19,6 +19,8 @@ protocol AutoSyncServicing {
     func sendPayload(
         _ payload: HealthSyncPayload,
         userID: String,
+        attemptID: String,
+        source: String,
         completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
     )
 }
@@ -145,10 +147,12 @@ final class SyncCoordinator {
     }
 
     func triggerSync(reason: AutoSyncReason) {
-        print("auto_sync_triggered reason=\(reason.rawValue)")
+        let attemptID = UUID().uuidString
+        refreshPendingStateFromStore()
+        print("auto_sync_triggered attempt_id=\(attemptID) reason=\(reason.rawValue)")
 
         guard healthKitAuthorizationProvider.hasRequestedAuthorization else {
-            print("auto_sync_failed reason=\(reason.rawValue) error=healthkit_permissions_required")
+            print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=healthkit_permissions_required")
             hasPendingSync = false
             saveSyncState { syncState in
                 syncState.lastErrorMessage = "HealthKit permissions required"
@@ -159,13 +163,13 @@ final class SyncCoordinator {
         }
 
         if isSyncRunning {
-            shouldSyncAgainAfterCurrentRun = true
-            print("auto_sync_skipped_already_running reason=\(reason.rawValue)")
+            shouldSyncAgainAfterCurrentRun = hasPendingSync || syncStateStore.load().hasPendingAutoSync
+            print("auto_sync_skipped_already_running attempt_id=\(attemptID) reason=\(reason.rawValue)")
             return
         }
 
         if shouldSkipLifecycleCooldown(for: reason) {
-            print("auto_sync_skipped_cooldown reason=\(reason.rawValue)")
+            print("auto_sync_skipped_cooldown attempt_id=\(attemptID) reason=\(reason.rawValue)")
             return
         }
 
@@ -177,24 +181,24 @@ final class SyncCoordinator {
             syncState.lastErrorMessage = nil
         }
 
-        print("auto_sync_started reason=\(reason.rawValue)")
+        print("auto_sync_started attempt_id=\(attemptID) reason=\(reason.rawValue)")
 
         syncService.performRecoverySync { [weak self] result in
             guard let self else { return }
 
             switch result {
             case .success(let data):
-                self.handleRecoveryPayload(data.payload, reason: reason)
+                self.handleRecoveryPayload(data.payload, reason: reason, attemptID: attemptID)
 
             case .failure(let error):
-                print("auto_sync_failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
+                print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=\(error.localizedDescription)")
                 self.markPendingSync(errorMessage: error.localizedDescription)
                 self.finishSync(success: false)
             }
         }
     }
 
-    private func handleRecoveryPayload(_ payload: HealthSyncPayload, reason: AutoSyncReason) {
+    private func handleRecoveryPayload(_ payload: HealthSyncPayload, reason: AutoSyncReason, attemptID: String) {
         let itemCounts = recoveryItemCounts(payload)
         let fingerprint = RecoveryPayloadFingerprint.make(from: payload)
         let syncState = syncStateStore.load()
@@ -205,9 +209,9 @@ final class SyncCoordinator {
 
         if !hasNewRecoveryData && !shouldSendPending && !shouldSendFirstPayload {
             if isLifecycleReason(reason), isWithinLifecycleCooldown(syncState) {
-                print("auto_sync_skipped_cooldown reason=\(reason.rawValue)")
+                print("auto_sync_skipped_cooldown attempt_id=\(attemptID) reason=\(reason.rawValue)")
             } else {
-                print("auto_sync_skipped_no_new_data reason=\(reason.rawValue)")
+                print("auto_sync_skipped_no_new_data attempt_id=\(attemptID) reason=\(reason.rawValue)")
             }
 
             hasPendingSync = false
@@ -221,7 +225,7 @@ final class SyncCoordinator {
         }
 
         if !hasPayloadData {
-            print("auto_sync_skipped_no_new_data reason=\(reason.rawValue)")
+            print("auto_sync_skipped_no_new_data attempt_id=\(attemptID) reason=\(reason.rawValue)")
             hasPendingSync = false
             saveSyncState { syncState in
                 syncState.lastErrorMessage = nil
@@ -234,17 +238,22 @@ final class SyncCoordinator {
         }
 
         print(
-            "auto_sync_send_started reason=\(reason.rawValue) " +
+            "auto_sync_send_started attempt_id=\(attemptID) reason=\(reason.rawValue) " +
             "sleep=\(itemCounts.sleep) hrv=\(itemCounts.hrv) rhr=\(itemCounts.restingHR)"
         )
 
-        syncService.sendPayload(payload, userID: backendUserID) { [weak self] sendResult in
+        syncService.sendPayload(
+            payload,
+            userID: backendUserID,
+            attemptID: attemptID,
+            source: "sync_coordinator_\(reason.rawValue)"
+        ) { [weak self] sendResult in
             guard let self else { return }
 
             switch sendResult {
             case .success(let response):
                 print(
-                    "auto_sync_success reason=\(reason.rawValue) " +
+                    "auto_sync_success attempt_id=\(attemptID) reason=\(reason.rawValue) " +
                     "sleep=\(itemCounts.sleep) hrv=\(itemCounts.hrv) rhr=\(itemCounts.restingHR) " +
                     "affected_dates=\(response.affectedDates.count) " +
                     "recovery=\(response.recoveryDaysRecomputed) " +
@@ -264,7 +273,7 @@ final class SyncCoordinator {
                 self.finishSync(success: true)
 
             case .failure(let error):
-                print("auto_sync_failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
+                print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=\(error.localizedDescription)")
                 self.markPendingSync(errorMessage: error.localizedDescription)
                 self.finishSync(success: false)
             }
@@ -344,6 +353,7 @@ final class SyncCoordinator {
 
     private func finishSync(success: Bool) {
         isSyncRunning = false
+        refreshPendingStateFromStore()
         notificationCenter.post(name: .syncStateDidChange, object: nil)
 
         if success {
@@ -352,8 +362,16 @@ final class SyncCoordinator {
 
         if shouldSyncAgainAfterCurrentRun {
             shouldSyncAgainAfterCurrentRun = false
+            refreshPendingStateFromStore()
+            guard hasPendingSync else { return }
             triggerSync(reason: .pendingRetry)
         }
+    }
+
+    private func refreshPendingStateFromStore() {
+        let syncState = syncStateStore.load()
+        hasPendingSync = syncState.hasPendingAutoSync
+        lastSyncAttemptAt = syncState.lastSyncAttemptAt
     }
 
     private func saveSyncState(_ mutate: (inout SyncState) -> Void) {
