@@ -25,17 +25,19 @@ set recovery_date = coalesce(
     ),
     sent_at = case
         when coalesce(payload_json->>'delivery_state', 'sent') = 'sent'
-            then coalesce(sent_at, created_at)
+            then coalesce(sent_at, updated_at, now())
         else sent_at
     end,
-    updated_at = coalesce(updated_at, created_at)
+    updated_at = coalesce(updated_at, sent_at, now())
 where notification_type = 'daily_readiness';
 
 do $$
 begin
     if to_regclass('public.notification_log') is not null and not exists (
-        select 1 from pg_constraint
+        select 1
+        from pg_constraint
         where conname = 'chk_notification_log_daily_freshness'
+          and conrelid = 'public.notification_log'::regclass
     ) then
         alter table notification_log
             add constraint chk_notification_log_daily_freshness
@@ -46,15 +48,22 @@ begin
     end if;
 
     if to_regclass('public.notification_log') is not null and not exists (
-        select 1 from pg_constraint
+        select 1
+        from pg_constraint
         where conname = 'chk_notification_log_daily_delivery_status'
+          and conrelid = 'public.notification_log'::regclass
     ) then
         alter table notification_log
             add constraint chk_notification_log_daily_delivery_status
             check (
                 notification_type <> 'daily_readiness'
                 or delivery_status in (
-                    'claimed', 'sent', 'updating', 'updated', 'superseded', 'failed'
+                    'claimed',
+                    'sent',
+                    'updating',
+                    'updated',
+                    'superseded',
+                    'failed'
                 )
             );
     end if;
