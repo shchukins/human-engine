@@ -449,13 +449,38 @@ Delivery-state журнал для at-most-once уведомлений.
 - `user_id`
 - `notification_type`
 - `notification_date`
+- `recovery_date`
+- `freshness_status`
+- `delivery_status`
+- `telegram_chat_id`
+- `telegram_message_id`
+- `sent_at`
+- `updated_at`
+- `content_fingerprint`
 - `payload_json`
 - `created_at`
 
 Для `daily_readiness` уникальность
-`(user_id, notification_type, notification_date)` используется как atomic
-claim между HealthKit event trigger и fallback worker. `payload_json` хранит
-delivery state (`claimed` или `sent`), текст сообщения и freshness metadata.
+`(user_id, notification_type, notification_date)` остается дневным atomic claim
+между HealthKit event trigger и fallback worker, но больше не означает, что row
+навсегда блокирует обновления. Под `select ... for update` delivery layer
+сравнивает `recovery_date`, `freshness_status` и SHA-256
+`content_fingerprint`. Полный внешний send/edit lifecycle дополнительно
+сериализуется PostgreSQL advisory lock по пользователю и дате briefing.
+
+Состояния доставки:
+
+- `claimed` — первичная отправка занята одним процессом;
+- `sent` — создано обычное Telegram-сообщение;
+- `updating` — процесс занял обновление существующего сообщения;
+- `updated` — существующее сообщение успешно изменено через `editMessageText`;
+- `superseded` — edit был невозможен и создано одно отдельное update-сообщение;
+- `failed` — первичная доставка не состоялась и может быть безопасно повторена.
+
+Старые rows не удаляются. При успешной отправке сохраняются Telegram
+`chat_id/message_id`, чтобы stale briefing можно было заменить после fresh
+HealthKit sync. `payload_json` остается диагностическим снимком текста и
+freshness metadata.
 
 Этот журнал относится к delivery layer и не влияет на recovery, readiness или
 recommendation.

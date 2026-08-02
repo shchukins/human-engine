@@ -1,8 +1,12 @@
-import math
-import json
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+import hashlib
+import json
+import math
+from typing import Any, Iterator, Literal
 
+from backend.config import settings
 from backend.db import get_conn
 from backend.services.activity_deduplication_service import (
     DELIVERY_TRAINING_PROCESSED,
@@ -14,7 +18,26 @@ from backend.services.activity_deduplication_service import (
 from backend.services.activity_load_service import resolve_activity_load
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
 from backend.services.subjective_feedback_service import send_post_ride_rpe_request
-from backend.services.telegram_service import send_telegram_message
+from backend.services.telegram_service import (
+    edit_telegram_message,
+    send_telegram_message,
+)
+
+
+DAILY_READINESS_STATUS_CLAIMED = "claimed"
+DAILY_READINESS_STATUS_SENT = "sent"
+DAILY_READINESS_STATUS_UPDATING = "updating"
+DAILY_READINESS_STATUS_UPDATED = "updated"
+DAILY_READINESS_STATUS_SUPERSEDED = "superseded"
+DAILY_READINESS_STATUS_FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class DailyReadinessDeliveryClaim:
+    action: Literal["send", "edit", "send_update"]
+    previous_delivery_status: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_message_id: int | None = None
 
 
 def _format_duration(seconds: int | None) -> str:
@@ -901,12 +924,66 @@ def notify_training_processed(user_id: str, activity_id: int) -> bool:
         raise
     return True
 
+
+def _daily_readiness_content_fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@contextmanager
+def _daily_readiness_delivery_lock(
+    user_id: str,
+    notification_date: date,
+) -> Iterator[None]:
+    """Serialize competing fallback/sync deliveries for one user's local day."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select pg_advisory_xact_lock(hashtext(%s), hashtext(%s));",
+                ("daily_readiness", f"{user_id}:{notification_date.isoformat()}"),
+            )
+        yield
+
+
+def _freshness_rank(value: str | None) -> int:
+    return {"missing": 0, "stale": 1, "fresh": 2}.get(value or "missing", 0)
+
+
+def _incoming_daily_readiness_is_newer(
+    *,
+    current_recovery_date: date | None,
+    current_freshness_status: str | None,
+    current_content_fingerprint: str | None,
+    incoming_recovery_date: date | None,
+    incoming_freshness_status: str,
+    incoming_content_fingerprint: str,
+) -> bool:
+    """Compare delivered briefing versions without changing readiness semantics."""
+    if current_recovery_date is not None and incoming_recovery_date is not None:
+        if incoming_recovery_date < current_recovery_date:
+            return False
+        if incoming_recovery_date > current_recovery_date:
+            return True
+
+    current_rank = _freshness_rank(current_freshness_status)
+    incoming_rank = _freshness_rank(incoming_freshness_status)
+    if incoming_rank < current_rank:
+        return False
+    if incoming_rank > current_rank:
+        return True
+
+    return incoming_content_fingerprint != current_content_fingerprint
+
+
 def claim_daily_readiness(
     user_id: str,
     notification_date: date,
     *,
+    recovery_date: date | None,
+    freshness_status: str,
+    content_fingerprint: str,
+    message: str,
     data_freshness: dict[str, Any],
-) -> bool:
+) -> DailyReadinessDeliveryClaim | None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -915,20 +992,31 @@ def claim_daily_readiness(
                     user_id,
                     notification_type,
                     notification_date,
+                    recovery_date,
+                    freshness_status,
+                    delivery_status,
+                    content_fingerprint,
                     payload_json
                 )
                 values (
                     %s,
                     'daily_readiness',
                     %s,
+                    %s,
+                    %s,
+                    'claimed',
+                    %s,
                     %s::jsonb
                 )
                 on conflict (user_id, notification_type, notification_date) do nothing
-                returning 1;
+                returning id;
                 """,
                 (
                     user_id,
                     notification_date,
+                    recovery_date,
+                    freshness_status,
+                    content_fingerprint,
                     json.dumps(
                         {
                             "delivery_state": "claimed",
@@ -938,10 +1026,117 @@ def claim_daily_readiness(
                     ),
                 ),
             )
-            claimed = cur.fetchone() is not None
+            inserted = cur.fetchone()
+            if inserted is not None:
+                conn.commit()
+                return DailyReadinessDeliveryClaim(action="send")
+
+            cur.execute(
+                """
+                select
+                    recovery_date,
+                    freshness_status,
+                    delivery_status,
+                    content_fingerprint,
+                    telegram_chat_id,
+                    telegram_message_id,
+                    payload_json->>'message'
+                from notification_log
+                where user_id = %s
+                  and notification_type = 'daily_readiness'
+                  and notification_date = %s
+                for update;
+                """,
+                (user_id, notification_date),
+            )
+            row = cur.fetchone()
+            if row is None:
+                conn.commit()
+                return None
+
+            (
+                current_recovery_date,
+                current_freshness_status,
+                delivery_status,
+                current_content_fingerprint,
+                telegram_chat_id,
+                telegram_message_id,
+                current_message,
+            ) = row
+
+            if delivery_status == DAILY_READINESS_STATUS_FAILED:
+                cur.execute(
+                    """
+                    update notification_log
+                    set recovery_date = %s,
+                        freshness_status = %s,
+                        delivery_status = 'claimed',
+                        content_fingerprint = %s,
+                        updated_at = now()
+                    where user_id = %s
+                      and notification_type = 'daily_readiness'
+                      and notification_date = %s;
+                    """,
+                    (
+                        recovery_date,
+                        freshness_status,
+                        content_fingerprint,
+                        user_id,
+                        notification_date,
+                    ),
+                )
+                conn.commit()
+                return DailyReadinessDeliveryClaim(action="send")
+
+            if delivery_status in {
+                DAILY_READINESS_STATUS_CLAIMED,
+                DAILY_READINESS_STATUS_UPDATING,
+            }:
+                conn.commit()
+                return None
+
+            # Rows created before the lifecycle migration have no SHA-256
+            # fingerprint or Telegram coordinates. Exact content equality keeps
+            # those historical deliveries idempotent after deployment.
+            if current_message == message:
+                conn.commit()
+                return None
+
+            if not _incoming_daily_readiness_is_newer(
+                current_recovery_date=current_recovery_date,
+                current_freshness_status=current_freshness_status,
+                current_content_fingerprint=current_content_fingerprint,
+                incoming_recovery_date=recovery_date,
+                incoming_freshness_status=freshness_status,
+                incoming_content_fingerprint=content_fingerprint,
+            ):
+                conn.commit()
+                return None
+
+            cur.execute(
+                """
+                update notification_log
+                set delivery_status = 'updating',
+                    updated_at = now()
+                where user_id = %s
+                  and notification_type = 'daily_readiness'
+                  and notification_date = %s;
+                """,
+                (user_id, notification_date),
+            )
             conn.commit()
 
-    return claimed
+    action: Literal["edit", "send_update"] = (
+        "edit"
+        if telegram_chat_id is not None and telegram_message_id is not None
+        else "send_update"
+    )
+    return DailyReadinessDeliveryClaim(
+        action=action,
+        previous_delivery_status=delivery_status,
+        telegram_chat_id=telegram_chat_id,
+        telegram_message_id=telegram_message_id,
+    )
 
 
 def mark_daily_readiness_sent(
@@ -949,6 +1144,12 @@ def mark_daily_readiness_sent(
     notification_date: date,
     *,
     payload: str,
+    recovery_date: date | None,
+    freshness_status: str,
+    delivery_status: str,
+    content_fingerprint: str,
+    telegram_chat_id: str | int | None,
+    telegram_message_id: int | None,
     data_freshness: dict[str, Any],
 ) -> None:
     with get_conn() as conn:
@@ -956,15 +1157,29 @@ def mark_daily_readiness_sent(
             cur.execute(
                 """
                 update notification_log
-                set payload_json = %s::jsonb
+                set recovery_date = %s,
+                    freshness_status = %s,
+                    delivery_status = %s,
+                    telegram_chat_id = %s,
+                    telegram_message_id = %s,
+                    sent_at = coalesce(sent_at, now()),
+                    updated_at = now(),
+                    content_fingerprint = %s,
+                    payload_json = %s::jsonb
                 where user_id = %s
                   and notification_type = 'daily_readiness'
                   and notification_date = %s;
                 """,
                 (
+                    recovery_date,
+                    freshness_status,
+                    delivery_status,
+                    str(telegram_chat_id) if telegram_chat_id is not None else None,
+                    telegram_message_id,
+                    content_fingerprint,
                     json.dumps(
                         {
-                            "delivery_state": "sent",
+                            "delivery_state": delivery_status,
                             "message": payload,
                             "data_freshness": data_freshness,
                         },
@@ -977,20 +1192,122 @@ def mark_daily_readiness_sent(
             conn.commit()
 
 
-def release_daily_readiness_claim(user_id: str, notification_date: date) -> None:
+def release_daily_readiness_claim(
+    user_id: str,
+    notification_date: date,
+    *,
+    previous_delivery_status: str | None = None,
+) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                delete from notification_log
+                update notification_log
+                set delivery_status = %s,
+                    updated_at = now()
                 where user_id = %s
                   and notification_type = 'daily_readiness'
                   and notification_date = %s
-                  and payload_json->>'delivery_state' = 'claimed';
+                  and delivery_status in ('claimed', 'updating');
                 """,
-                (user_id, notification_date),
+                (
+                    previous_delivery_status or DAILY_READINESS_STATUS_FAILED,
+                    user_id,
+                    notification_date,
+                ),
             )
             conn.commit()
+
+
+def _send_daily_readiness_locked(
+    user_id: str,
+    notification_date: date,
+    *,
+    recovery_date: date | None = None,
+    data_freshness: dict[str, Any] | None = None,
+) -> bool:
+    if data_freshness is None:
+        data_freshness = get_healthkit_data_freshness(
+            user_id=user_id,
+            for_date=notification_date,
+        )
+    if recovery_date is None and data_freshness.get("recovery_date") is not None:
+        recovery_date = date.fromisoformat(str(data_freshness["recovery_date"]))
+
+    freshness_status = str(data_freshness.get("state") or "missing")
+    text = build_daily_readiness_message(
+        user_id=user_id,
+        notification_date=notification_date,
+        recovery_date=recovery_date,
+        data_freshness=data_freshness,
+    )
+    content_fingerprint = _daily_readiness_content_fingerprint(text)
+    claim = claim_daily_readiness(
+        user_id=user_id,
+        notification_date=notification_date,
+        recovery_date=recovery_date,
+        freshness_status=freshness_status,
+        content_fingerprint=content_fingerprint,
+        message=text,
+        data_freshness=data_freshness,
+    )
+    if claim is None:
+        return False
+
+    delivered = False
+    try:
+        response: dict[str, Any] | None
+        delivery_status = DAILY_READINESS_STATUS_SENT
+        if claim.action == "edit":
+            try:
+                response = edit_telegram_message(
+                    claim.telegram_chat_id,
+                    claim.telegram_message_id,
+                    text,
+                )
+                delivery_status = DAILY_READINESS_STATUS_UPDATED
+            except Exception:
+                response = send_telegram_message(f"ОБНОВЛЕНИЕ\n\n{text}")
+                delivery_status = DAILY_READINESS_STATUS_SUPERSEDED
+        else:
+            delivery_text = (
+                f"ОБНОВЛЕНИЕ\n\n{text}"
+                if claim.action == "send_update"
+                else text
+            )
+            response = send_telegram_message(delivery_text)
+            if claim.action == "send_update":
+                delivery_status = DAILY_READINESS_STATUS_SUPERSEDED
+        delivered = True
+        result = response.get("result", {}) if isinstance(response, dict) else {}
+        response_chat = result.get("chat", {}) if isinstance(result, dict) else {}
+        telegram_chat_id = response_chat.get("id") or claim.telegram_chat_id
+        telegram_message_id = result.get("message_id") or claim.telegram_message_id
+        mark_daily_readiness_sent(
+            user_id=user_id,
+            notification_date=notification_date,
+            payload=text,
+            recovery_date=recovery_date,
+            freshness_status=freshness_status,
+            delivery_status=delivery_status,
+            content_fingerprint=content_fingerprint,
+            telegram_chat_id=telegram_chat_id or settings.telegram_chat_id,
+            telegram_message_id=telegram_message_id,
+            data_freshness=data_freshness,
+        )
+    except Exception:
+        # Once Telegram accepted the message, keep the claim even if persisting
+        # the final payload failed: at-most-once delivery is more important than
+        # retrying into a duplicate morning briefing.
+        if not delivered:
+            release_daily_readiness_claim(
+                user_id=user_id,
+                notification_date=notification_date,
+                previous_delivery_status=claim.previous_delivery_status,
+            )
+        raise
+
+    return True
 
 
 def send_daily_readiness(
@@ -1003,47 +1320,13 @@ def send_daily_readiness(
     if notification_date is None:
         notification_date = datetime.now(timezone.utc).date()
 
-    if data_freshness is None:
-        data_freshness = get_healthkit_data_freshness(
-            user_id=user_id,
-            for_date=notification_date,
-        )
-    if recovery_date is None and data_freshness.get("recovery_date") is not None:
-        recovery_date = date.fromisoformat(str(data_freshness["recovery_date"]))
-
-    claimed = claim_daily_readiness(
-        user_id=user_id,
-        notification_date=notification_date,
-        data_freshness=data_freshness,
-    )
-    if not claimed:
-        return False
-
-    delivered = False
-    try:
-        text = build_daily_readiness_message(
+    # The lock spans Telegram I/O intentionally. Daily briefing delivery is
+    # low-frequency, and serializing the complete lifecycle prevents a fresh
+    # HealthKit event from being lost behind an in-flight stale fallback claim.
+    with _daily_readiness_delivery_lock(user_id, notification_date):
+        return _send_daily_readiness_locked(
             user_id=user_id,
             notification_date=notification_date,
             recovery_date=recovery_date,
             data_freshness=data_freshness,
         )
-        send_telegram_message(text)
-        delivered = True
-        mark_daily_readiness_sent(
-            user_id=user_id,
-            notification_date=notification_date,
-            payload=text,
-            data_freshness=data_freshness,
-        )
-    except Exception:
-        # Once Telegram accepted the message, keep the claim even if persisting
-        # the final payload failed: at-most-once delivery is more important than
-        # retrying into a duplicate morning briefing.
-        if not delivered:
-            release_daily_readiness_claim(
-                user_id=user_id,
-                notification_date=notification_date,
-            )
-        raise
-
-    return True

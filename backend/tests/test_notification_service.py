@@ -1,8 +1,11 @@
+from contextlib import nullcontext
 from datetime import date
 
 import pytest
 
 from backend.services.notification_service import (
+    DailyReadinessDeliveryClaim,
+    _incoming_daily_readiness_is_newer,
     build_briefing_text,
     build_daily_readiness_message,
     build_readiness_briefing_message,
@@ -20,6 +23,14 @@ from backend.services.notification_service import (
     notify_training_processed,
     send_daily_readiness,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_daily_readiness_delivery_lock(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.notification_service._daily_readiness_delivery_lock",
+        lambda user_id, notification_date: nullcontext(),
+    )
 
 def test_compute_readiness_score_none():
     assert compute_readiness_score(None) is None
@@ -454,7 +465,11 @@ def test_send_daily_readiness_claim_prevents_duplicate(monkeypatch):
 
     monkeypatch.setattr(
         "backend.services.notification_service.claim_daily_readiness",
-        lambda **kwargs: False,
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "briefing",
     )
     monkeypatch.setattr(
         "backend.services.notification_service.send_telegram_message",
@@ -476,7 +491,7 @@ def test_send_daily_readiness_releases_claim_when_delivery_fails(monkeypatch):
 
     monkeypatch.setattr(
         "backend.services.notification_service.claim_daily_readiness",
-        lambda **kwargs: True,
+        lambda **kwargs: DailyReadinessDeliveryClaim(action="send"),
     )
     monkeypatch.setattr(
         "backend.services.notification_service.build_daily_readiness_message",
@@ -502,6 +517,7 @@ def test_send_daily_readiness_releases_claim_when_delivery_fails(monkeypatch):
         {
             "user_id": "user-1",
             "notification_date": date(2026, 4, 17),
+            "previous_delivery_status": None,
         }
     ]
 
@@ -511,7 +527,7 @@ def test_send_daily_readiness_keeps_claim_after_successful_delivery(monkeypatch)
 
     monkeypatch.setattr(
         "backend.services.notification_service.claim_daily_readiness",
-        lambda **kwargs: True,
+        lambda **kwargs: DailyReadinessDeliveryClaim(action="send"),
     )
     monkeypatch.setattr(
         "backend.services.notification_service.build_daily_readiness_message",
@@ -538,6 +554,214 @@ def test_send_daily_readiness_keeps_claim_after_successful_delivery(monkeypatch)
         )
 
     assert released == []
+
+
+def test_no_briefing_fresh_sync_sends_message(monkeypatch):
+    sent_messages = []
+    marked = []
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "fresh briefing",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: DailyReadinessDeliveryClaim(action="send"),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: sent_messages.append(text)
+        or {"result": {"message_id": 101, "chat": {"id": 202}}},
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.mark_daily_readiness_sent",
+        lambda **kwargs: marked.append(kwargs),
+    )
+
+    assert send_daily_readiness(
+        "user-1",
+        notification_date=date(2026, 8, 2),
+        recovery_date=date(2026, 8, 2),
+        data_freshness={"state": "fresh", "recovery_date": "2026-08-02"},
+    ) is True
+
+    assert sent_messages == ["fresh briefing"]
+    assert marked[0]["delivery_status"] == "sent"
+    assert marked[0]["telegram_chat_id"] == 202
+    assert marked[0]["telegram_message_id"] == 101
+
+
+def test_stale_fallback_then_fresh_sync_edits_existing_message(monkeypatch):
+    edits = []
+    ordinary_messages = []
+    marked = []
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "fresh score 50.8",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: DailyReadinessDeliveryClaim(
+            action="edit",
+            previous_delivery_status="sent",
+            telegram_chat_id="chat-1",
+            telegram_message_id=303,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.edit_telegram_message",
+        lambda chat_id, message_id, text: edits.append((chat_id, message_id, text))
+        or {"result": {"message_id": message_id, "chat": {"id": chat_id}}},
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: ordinary_messages.append(text),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.mark_daily_readiness_sent",
+        lambda **kwargs: marked.append(kwargs),
+    )
+
+    assert send_daily_readiness(
+        "user-1",
+        notification_date=date(2026, 8, 2),
+        recovery_date=date(2026, 8, 2),
+        data_freshness={"state": "fresh", "recovery_date": "2026-08-02"},
+    ) is True
+
+    assert edits == [("chat-1", 303, "fresh score 50.8")]
+    assert ordinary_messages == []
+    assert marked[0]["delivery_status"] == "updated"
+
+
+def test_fresh_briefing_repeated_sync_is_noop(monkeypatch):
+    sends = []
+    edits = []
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "same fresh briefing",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: sends.append(text),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.edit_telegram_message",
+        lambda *args: edits.append(args),
+    )
+
+    assert send_daily_readiness(
+        "user-1",
+        notification_date=date(2026, 8, 2),
+        recovery_date=date(2026, 8, 2),
+        data_freshness={"state": "fresh", "recovery_date": "2026-08-02"},
+    ) is False
+    assert sends == []
+    assert edits == []
+
+
+def test_newer_recovery_date_is_an_update():
+    assert _incoming_daily_readiness_is_newer(
+        current_recovery_date=date(2026, 8, 1),
+        current_freshness_status="stale",
+        current_content_fingerprint="old",
+        incoming_recovery_date=date(2026, 8, 2),
+        incoming_freshness_status="fresh",
+        incoming_content_fingerprint="new",
+    ) is True
+
+
+def test_same_recovery_date_updates_only_when_content_fingerprint_changes():
+    common = {
+        "current_recovery_date": date(2026, 8, 2),
+        "current_freshness_status": "fresh",
+        "incoming_recovery_date": date(2026, 8, 2),
+        "incoming_freshness_status": "fresh",
+    }
+    assert _incoming_daily_readiness_is_newer(
+        **common,
+        current_content_fingerprint="score-50.8",
+        incoming_content_fingerprint="score-50.8",
+    ) is False
+    assert _incoming_daily_readiness_is_newer(
+        **common,
+        current_content_fingerprint="score-52.2",
+        incoming_content_fingerprint="score-50.8",
+    ) is True
+
+
+def test_repeated_identical_sync_after_update_is_noop():
+    assert _incoming_daily_readiness_is_newer(
+        current_recovery_date=date(2026, 8, 2),
+        current_freshness_status="fresh",
+        current_content_fingerprint="updated-content",
+        incoming_recovery_date=date(2026, 8, 2),
+        incoming_freshness_status="fresh",
+        incoming_content_fingerprint="updated-content",
+    ) is False
+
+
+def test_telegram_edit_failure_sends_one_fallback_update(monkeypatch):
+    claims = iter(
+        [
+            DailyReadinessDeliveryClaim(
+                action="edit",
+                previous_delivery_status="sent",
+                telegram_chat_id="chat-1",
+                telegram_message_id=303,
+            ),
+            None,
+        ]
+    )
+    fallback_messages = []
+    marked = []
+    monkeypatch.setattr(
+        "backend.services.notification_service.build_daily_readiness_message",
+        lambda **kwargs: "fresh score 50.8",
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.claim_daily_readiness",
+        lambda **kwargs: next(claims),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.edit_telegram_message",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("message cannot be edited")),
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.send_telegram_message",
+        lambda text: fallback_messages.append(text)
+        or {"result": {"message_id": 404, "chat": {"id": "chat-1"}}},
+    )
+    monkeypatch.setattr(
+        "backend.services.notification_service.mark_daily_readiness_sent",
+        lambda **kwargs: marked.append(kwargs),
+    )
+
+    kwargs = {
+        "notification_date": date(2026, 8, 2),
+        "recovery_date": date(2026, 8, 2),
+        "data_freshness": {"state": "fresh", "recovery_date": "2026-08-02"},
+    }
+    assert send_daily_readiness("user-1", **kwargs) is True
+    assert send_daily_readiness("user-1", **kwargs) is False
+
+    assert fallback_messages == ["ОБНОВЛЕНИЕ\n\nfresh score 50.8"]
+    assert marked[0]["delivery_status"] == "superseded"
+    assert marked[0]["telegram_message_id"] == 404
+
+
+def test_fallback_worker_cannot_overwrite_newer_fresh_briefing():
+    assert _incoming_daily_readiness_is_newer(
+        current_recovery_date=date(2026, 8, 2),
+        current_freshness_status="fresh",
+        current_content_fingerprint="fresh-content",
+        incoming_recovery_date=date(2026, 7, 30),
+        incoming_freshness_status="stale",
+        incoming_content_fingerprint="stale-content",
+    ) is False
 
 
 def test_classify_workout_type_unknown():
