@@ -9,15 +9,61 @@ enum AutoSyncReason: String {
     case pendingRetry = "pending_retry"
 }
 
+protocol HealthKitAuthorizationProviding {
+    var hasRequestedAuthorization: Bool { get }
+    func enableObservers()
+}
+
+protocol AutoSyncServicing {
+    func performRecoverySync(completion: @escaping (Result<FullSyncData, Error>) -> Void)
+    func sendPayload(
+        _ payload: HealthSyncPayload,
+        userID: String,
+        attemptID: String,
+        source: String,
+        completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
+    )
+}
+
+protocol SyncStateStoring {
+    func load() -> SyncState
+    func save(_ state: SyncState)
+}
+
+extension HealthKitService: HealthKitAuthorizationProviding {}
+extension SyncService: AutoSyncServicing {}
+extension SyncStateStore: SyncStateStoring {}
+
+enum RecoveryPayloadFingerprint {
+    static func make(from payload: HealthSyncPayload) -> String {
+        let sleep = payload.sleepNights
+            .map { "\($0.wakeDate):\($0.sleepStart):\($0.sleepEnd):\($0.totalSleepMinutes):\($0.awakeMinutes):\($0.coreMinutes):\($0.remMinutes):\($0.deepMinutes):\($0.inBedMinutes ?? -1)" }
+            .sorted()
+            .joined(separator: "|")
+        let restingHR = payload.restingHeartRateDaily
+            .map { "\($0.date):\($0.bpm)" }
+            .sorted()
+            .joined(separator: "|")
+        let hrv = payload.hrvSamples
+            .map { "\($0.startAt):\($0.valueMs)" }
+            .sorted()
+            .joined(separator: "|")
+
+        return "sleep[\(sleep)]::rhr[\(restingHR)]::hrv[\(hrv)]"
+    }
+}
+
 @MainActor
 final class SyncCoordinator {
     static let shared = SyncCoordinator()
 
     private let notificationCenter: NotificationCenter
-    private let syncService: SyncService
-    private let syncStateStore: SyncStateStore
-    private let debounceInterval: TimeInterval = 5
-    private let lifecycleThrottleInterval: TimeInterval = 10
+    private let syncService: AutoSyncServicing
+    private let syncStateStore: SyncStateStoring
+    private let healthKitAuthorizationProvider: HealthKitAuthorizationProviding
+    private let now: () -> Date
+    private let debounceInterval: TimeInterval
+    private let lifecycleCooldownInterval: TimeInterval
     private let backendUserID = "sergey"
 
     private var observerTokens: [NSObjectProtocol] = []
@@ -29,14 +75,26 @@ final class SyncCoordinator {
     private(set) var lastSyncAttemptAt: Date?
     private var debounceWorkItem: DispatchWorkItem?
 
-    private init() {
-        let notificationCenter = NotificationCenter.default
-        let syncService = SyncService.shared
-        let syncStateStore = SyncStateStore.shared
+    init(
+        notificationCenter: NotificationCenter = .default,
+        syncService: AutoSyncServicing? = nil,
+        syncStateStore: SyncStateStoring? = nil,
+        healthKitAuthorizationProvider: HealthKitAuthorizationProviding? = nil,
+        now: @escaping () -> Date = Date.init,
+        debounceInterval: TimeInterval = 5,
+        lifecycleCooldownInterval: TimeInterval = 15 * 60
+    ) {
+        let syncService = syncService ?? SyncService.shared
+        let syncStateStore = syncStateStore ?? SyncStateStore.shared
+        let healthKitAuthorizationProvider = healthKitAuthorizationProvider ?? HealthKitService.shared
 
         self.notificationCenter = notificationCenter
         self.syncService = syncService
         self.syncStateStore = syncStateStore
+        self.healthKitAuthorizationProvider = healthKitAuthorizationProvider
+        self.now = now
+        self.debounceInterval = debounceInterval
+        self.lifecycleCooldownInterval = lifecycleCooldownInterval
 
         let syncState = syncStateStore.load()
         self.hasPendingSync = syncState.hasPendingAutoSync
@@ -50,7 +108,7 @@ final class SyncCoordinator {
         print("sync_coordinator_start")
 
         registerHealthKitObservers()
-        HealthKitService.shared.enableObservers()
+        healthKitAuthorizationProvider.enableObservers()
     }
 
     func retryPendingSyncAfterAuthorizationIfNeeded() {
@@ -89,10 +147,12 @@ final class SyncCoordinator {
     }
 
     func triggerSync(reason: AutoSyncReason) {
-        print("auto_sync_triggered reason=\(reason.rawValue)")
+        let attemptID = UUID().uuidString
+        refreshPendingStateFromStore()
+        print("auto_sync_triggered attempt_id=\(attemptID) reason=\(reason.rawValue)")
 
-        guard HealthKitService.shared.hasRequestedAuthorization else {
-            print("auto_sync_skipped_authorization_not_requested reason=\(reason.rawValue)")
+        guard healthKitAuthorizationProvider.hasRequestedAuthorization else {
+            print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=healthkit_permissions_required")
             hasPendingSync = false
             saveSyncState { syncState in
                 syncState.lastErrorMessage = "HealthKit permissions required"
@@ -103,81 +163,117 @@ final class SyncCoordinator {
         }
 
         if isSyncRunning {
-            shouldSyncAgainAfterCurrentRun = true
-            print("auto_sync_skipped_already_running reason=\(reason.rawValue)")
+            shouldSyncAgainAfterCurrentRun = hasPendingSync || syncStateStore.load().hasPendingAutoSync
+            print("auto_sync_skipped_already_running attempt_id=\(attemptID) reason=\(reason.rawValue)")
             return
         }
 
-        if shouldThrottleLifecycleSync(for: reason) {
-            print("auto_sync_skipped_throttled reason=\(reason.rawValue)")
+        if shouldSkipLifecycleCooldown(for: reason) {
+            print("auto_sync_skipped_cooldown attempt_id=\(attemptID) reason=\(reason.rawValue)")
             return
         }
 
         isSyncRunning = true
-        lastSyncAttemptAt = Date()
+        lastSyncAttemptAt = now()
 
         saveSyncState { syncState in
             syncState.lastSyncAttemptAt = self.lastSyncAttemptAt
             syncState.lastErrorMessage = nil
         }
 
-        print("auto_sync_started reason=\(reason.rawValue)")
+        print("auto_sync_started attempt_id=\(attemptID) reason=\(reason.rawValue)")
 
-        syncService.performIncrementalSync { [weak self] result in
+        syncService.performRecoverySync { [weak self] result in
             guard let self else { return }
 
             switch result {
             case .success(let data):
-                let hasPayload = data.payload != nil
-                print("auto_sync_incremental_result hasPayload=\(hasPayload)")
-
-                guard let payload = data.payload else {
-                    print("auto_sync_noop")
-                    self.hasPendingSync = false
-                    self.saveSyncState { syncState in
-                        syncState.hasPendingAutoSync = false
-                        syncState.lastErrorMessage = nil
-                        syncState.lastSyncMode = .incremental
-                    }
-                    self.finishSync(success: true)
-                    return
-                }
-
-                print("auto_sync_send_started")
-                self.syncService.sendPayload(payload, userID: self.backendUserID) { [weak self] sendResult in
-                    guard let self else { return }
-
-                    switch sendResult {
-                    case .success(let response):
-                        print(
-                            """
-                            auto_sync_send_finished \
-                            affected_dates=\(response.affectedDates.count) \
-                            recovery=\(response.recoveryDaysRecomputed) \
-                            readiness=\(response.readinessDaysRecomputed)
-                            """
-                        )
-
-                        self.hasPendingSync = false
-                        self.saveSyncState { syncState in
-                            syncState.lastSuccessfulSyncAt = Date()
-                            syncState.lastPayloadGeneratedAt = Date()
-                            syncState.lastErrorMessage = nil
-                            syncState.lastSentItemCount = self.payloadItemCount(payload)
-                            syncState.lastSyncMode = .incremental
-                            syncState.hasPendingAutoSync = false
-                        }
-                        self.finishSync(success: true)
-
-                    case .failure(let error):
-                        print("auto_sync_failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
-                        self.markPendingSync(errorMessage: error.localizedDescription)
-                        self.finishSync(success: false)
-                    }
-                }
+                self.handleRecoveryPayload(data.payload, reason: reason, attemptID: attemptID)
 
             case .failure(let error):
-                print("auto_sync_failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
+                print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=\(error.localizedDescription)")
+                self.markPendingSync(errorMessage: error.localizedDescription)
+                self.finishSync(success: false)
+            }
+        }
+    }
+
+    private func handleRecoveryPayload(_ payload: HealthSyncPayload, reason: AutoSyncReason, attemptID: String) {
+        let itemCounts = recoveryItemCounts(payload)
+        let fingerprint = RecoveryPayloadFingerprint.make(from: payload)
+        let syncState = syncStateStore.load()
+        let hasPayloadData = itemCounts.sleep > 0 || itemCounts.hrv > 0 || itemCounts.restingHR > 0
+        let hasNewRecoveryData = fingerprint != syncState.lastRecoveryPayloadFingerprint
+        let shouldSendPending = hasPendingSync || syncState.hasPendingAutoSync
+        let shouldSendFirstPayload = syncState.lastSuccessfulSyncAt == nil && hasPayloadData
+
+        if !hasNewRecoveryData && !shouldSendPending && !shouldSendFirstPayload {
+            if isLifecycleReason(reason), isWithinLifecycleCooldown(syncState) {
+                print("auto_sync_skipped_cooldown attempt_id=\(attemptID) reason=\(reason.rawValue)")
+            } else {
+                print("auto_sync_skipped_no_new_data attempt_id=\(attemptID) reason=\(reason.rawValue)")
+            }
+
+            hasPendingSync = false
+            saveSyncState { syncState in
+                syncState.lastErrorMessage = nil
+                syncState.lastSyncMode = .full
+                syncState.hasPendingAutoSync = false
+            }
+            finishSync(success: true)
+            return
+        }
+
+        if !hasPayloadData {
+            print("auto_sync_skipped_no_new_data attempt_id=\(attemptID) reason=\(reason.rawValue)")
+            hasPendingSync = false
+            saveSyncState { syncState in
+                syncState.lastErrorMessage = nil
+                syncState.lastSyncMode = .full
+                syncState.hasPendingAutoSync = false
+                syncState.lastRecoveryPayloadFingerprint = fingerprint
+            }
+            finishSync(success: true)
+            return
+        }
+
+        print(
+            "auto_sync_send_started attempt_id=\(attemptID) reason=\(reason.rawValue) " +
+            "sleep=\(itemCounts.sleep) hrv=\(itemCounts.hrv) rhr=\(itemCounts.restingHR)"
+        )
+
+        syncService.sendPayload(
+            payload,
+            userID: backendUserID,
+            attemptID: attemptID,
+            source: "sync_coordinator_\(reason.rawValue)"
+        ) { [weak self] sendResult in
+            guard let self else { return }
+
+            switch sendResult {
+            case .success(let response):
+                print(
+                    "auto_sync_success attempt_id=\(attemptID) reason=\(reason.rawValue) " +
+                    "sleep=\(itemCounts.sleep) hrv=\(itemCounts.hrv) rhr=\(itemCounts.restingHR) " +
+                    "affected_dates=\(response.affectedDates.count) " +
+                    "recovery=\(response.recoveryDaysRecomputed) " +
+                    "readiness=\(response.readinessDaysRecomputed)"
+                )
+
+                self.hasPendingSync = false
+                self.saveSyncState { syncState in
+                    syncState.lastSuccessfulSyncAt = self.now()
+                    syncState.lastPayloadGeneratedAt = self.now()
+                    syncState.lastErrorMessage = nil
+                    syncState.lastSentItemCount = self.payloadItemCount(payload)
+                    syncState.lastSyncMode = .full
+                    syncState.hasPendingAutoSync = false
+                    syncState.lastRecoveryPayloadFingerprint = fingerprint
+                }
+                self.finishSync(success: true)
+
+            case .failure(let error):
+                print("auto_sync_failed attempt_id=\(attemptID) reason=\(reason.rawValue) error=\(error.localizedDescription)")
                 self.markPendingSync(errorMessage: error.localizedDescription)
                 self.finishSync(success: false)
             }
@@ -225,16 +321,25 @@ final class SyncCoordinator {
         )
     }
 
-    private func shouldThrottleLifecycleSync(for reason: AutoSyncReason) -> Bool {
-        guard reason == .appLaunch || reason == .appBecameActive else {
+    private func isWithinLifecycleCooldown(_ syncState: SyncState) -> Bool {
+        guard let lastSuccessfulSyncAt = syncState.lastSuccessfulSyncAt else {
             return false
         }
 
-        guard !hasPendingSync, let lastSyncAttemptAt else {
+        return now().timeIntervalSince(lastSuccessfulSyncAt) < lifecycleCooldownInterval
+    }
+
+    private func shouldSkipLifecycleCooldown(for reason: AutoSyncReason) -> Bool {
+        guard isLifecycleReason(reason), !hasPendingSync else {
             return false
         }
 
-        return Date().timeIntervalSince(lastSyncAttemptAt) < lifecycleThrottleInterval
+        let syncState = syncStateStore.load()
+        return !syncState.hasPendingAutoSync && isWithinLifecycleCooldown(syncState)
+    }
+
+    private func isLifecycleReason(_ reason: AutoSyncReason) -> Bool {
+        reason == .appLaunch || reason == .appBecameActive
     }
 
     private func markPendingSync(errorMessage: String) {
@@ -242,12 +347,13 @@ final class SyncCoordinator {
         saveSyncState { syncState in
             syncState.lastErrorMessage = errorMessage
             syncState.hasPendingAutoSync = true
-            syncState.lastSyncMode = .incremental
+            syncState.lastSyncMode = .full
         }
     }
 
     private func finishSync(success: Bool) {
         isSyncRunning = false
+        refreshPendingStateFromStore()
         notificationCenter.post(name: .syncStateDidChange, object: nil)
 
         if success {
@@ -256,8 +362,16 @@ final class SyncCoordinator {
 
         if shouldSyncAgainAfterCurrentRun {
             shouldSyncAgainAfterCurrentRun = false
+            refreshPendingStateFromStore()
+            guard hasPendingSync else { return }
             triggerSync(reason: .pendingRetry)
         }
+    }
+
+    private func refreshPendingStateFromStore() {
+        let syncState = syncStateStore.load()
+        hasPendingSync = syncState.hasPendingAutoSync
+        lastSyncAttemptAt = syncState.lastSyncAttemptAt
     }
 
     private func saveSyncState(_ mutate: (inout SyncState) -> Void) {
@@ -281,5 +395,13 @@ final class SyncCoordinator {
         payload.restingHeartRateDaily.count +
         payload.hrvSamples.count +
         (payload.latestWeight == nil ? 0 : 1)
+    }
+
+    private func recoveryItemCounts(_ payload: HealthSyncPayload) -> (sleep: Int, hrv: Int, restingHR: Int) {
+        (
+            sleep: payload.sleepNights.count,
+            hrv: payload.hrvSamples.count,
+            restingHR: payload.restingHeartRateDaily.count
+        )
     }
 }

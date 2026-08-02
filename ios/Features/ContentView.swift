@@ -38,13 +38,13 @@ struct ContentView: View {
             .onAppear {
                 viewModel.prepareDashboardForDisplay {
                     if scenePhase == .active {
-                        viewModel.triggerAutoSync(reason: "app_open")
+                        SyncCoordinator.shared.triggerSync(reason: .appLaunch)
                     }
                 }
             }
-            .onChange(of: scenePhase) { _, newPhase in
-                guard newPhase == .active else { return }
-                viewModel.triggerAutoSync(reason: "app_active")
+            .onChange(of: scenePhase) {
+                guard scenePhase == .active else { return }
+                SyncCoordinator.shared.handleAppBecameActive()
             }
             .onReceive(NotificationCenter.default.publisher(for: .syncStateDidChange)) { _ in
                 viewModel.reloadSyncState()

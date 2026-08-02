@@ -50,9 +50,6 @@ final class ContentViewModel {
 
     private var hasPerformedInitialSync = false
     private var hasPreparedDashboard = false
-    private let autoSyncDebounceInterval: TimeInterval = 1.0
-    private let autoSyncThrottleInterval: TimeInterval = 10
-    private var autoSyncWorkItem: DispatchWorkItem?
     private var latestHealthSnapshot: LatestHealthSnapshot?
 
     // MARK: - Sync state
@@ -85,9 +82,7 @@ final class ContentViewModel {
                     guard let self else { return }
                     self.refreshStatuses()
 
-                    if self.syncState.hasPendingAutoSync {
-                        self.triggerAutoSync(reason: "authorization_granted")
-                    }
+                    SyncCoordinator.shared.retryPendingSyncAfterAuthorizationIfNeeded()
                 }
 
             case .failure(let error):
@@ -128,7 +123,9 @@ final class ContentViewModel {
 
         SyncService.shared.sendPayload(
             payload,
-            userID: backendUserID
+            userID: backendUserID,
+            attemptID: UUID().uuidString,
+            source: "content_view_manual_\(mode.rawValue)"
         ) { [weak self] result in
             guard let self else {
                 completion()
@@ -438,17 +435,6 @@ final class ContentViewModel {
         loadLatestSnapshotFromHealthKit(completion: completion)
     }
 
-    func triggerAutoSync(reason: String) {
-        autoSyncWorkItem?.cancel()
-
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.performAutoSyncIfNeeded(reason: reason)
-        }
-
-        autoSyncWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + autoSyncDebounceInterval, execute: workItem)
-    }
-
     func runFullSyncFromMainScreen() {
         performFullSync { [weak self] result in
             guard let self else { return }
@@ -721,120 +707,6 @@ final class ContentViewModel {
         }
 
         return true
-    }
-
-    private func performAutoSyncIfNeeded(reason: String) {
-        reloadSyncState()
-
-        guard !isSyncInProgress, !SyncCoordinator.shared.isSyncRunning else {
-            return
-        }
-
-        if requiresHealthKitAuthorization {
-            statusMessage = "HealthKit permissions required"
-            syncState.lastSyncAttemptAt = Date()
-            syncState.lastErrorMessage = "HealthKit permissions required"
-            syncState.hasPendingAutoSync = true
-            saveSyncState()
-            refreshStatuses()
-            return
-        }
-
-        if
-            let lastAttempt = syncState.lastSyncAttemptAt,
-            Date().timeIntervalSince(lastAttempt) < autoSyncThrottleInterval,
-            !syncState.hasPendingAutoSync
-        {
-            return
-        }
-
-        syncState.lastSyncAttemptAt = Date()
-        syncState.lastErrorMessage = nil
-        saveSyncState()
-
-        if syncState.lastSuccessfulSyncAt == nil {
-            statusMessage = "Auto sync: full sync..."
-            runAutoFullSync()
-        } else {
-            statusMessage = "Auto sync: incremental sync..."
-            runAutoIncrementalSync(reason: reason)
-        }
-    }
-
-    private func runAutoFullSync() {
-        performFullSync { [weak self] result in
-            guard let self else { return }
-
-            switch result {
-            case .success(let data):
-                self.weightSamples = data.weightSamples
-                self.restingHRSamples = data.restingHRSamples
-                self.hrvSamples = data.hrvSamples
-                self.sleepSamples = data.sleepSamples
-                self.sleepNightAggregates = data.sleepNightAggregates
-                self.persistSnapshot(
-                    rebuiltFrom: data.sleepNightAggregates,
-                    hrvSamples: data.hrvSamples,
-                    restingHRSamples: data.restingHRSamples,
-                    weightSamples: data.weightSamples
-                )
-                self.updatePayloadSummary(from: data.payload)
-                self.refreshStatuses()
-
-                self.sendPayload(data.payload, mode: .full) { [weak self] in
-                    self?.isSyncInProgress = false
-                }
-
-            case .failure:
-                break
-            }
-        }
-    }
-
-    private func runAutoIncrementalSync(reason: String) {
-        performIncrementalSync { [weak self] result in
-            guard let self else { return }
-
-            switch result {
-            case .success(let data):
-                guard let payload = data.payload else {
-                    self.statusMessage = "Auto sync: no new data"
-                    self.syncState.lastSuccessfulSyncAt = Date()
-                    self.syncState.lastErrorMessage = nil
-                    self.syncState.lastSyncMode = .incremental
-                    self.syncState.hasPendingAutoSync = false
-                    self.saveSyncState()
-                    self.isSyncInProgress = false
-                    return
-                }
-
-                self.newHRVSamples = data.newHRVSamples
-                self.newRestingHRSamples = data.newRestingHRSamples
-                self.newSleepNightAggregates = data.newSleepNightAggregates
-                self.hrvSamples = data.newHRVSamples
-                self.restingHRSamples = data.newRestingHRSamples
-                self.sleepNightAggregates = data.newSleepNightAggregates
-                self.sleepSamples = []
-                self.mergeSnapshot(
-                    sleepNightAggregates: data.newSleepNightAggregates,
-                    hrvSamples: data.newHRVSamples,
-                    restingHRSamples: data.newRestingHRSamples
-                )
-                self.updatePayloadSummary(from: payload)
-                self.refreshStatuses()
-
-                self.sendPayload(payload, mode: .incremental) { [weak self] in
-                    self?.isSyncInProgress = false
-                }
-
-            case .failure(let error):
-                self.statusMessage = "Auto sync error: \(error.localizedDescription)"
-                self.syncState.lastErrorMessage = error.localizedDescription
-                self.syncState.hasPendingAutoSync = reason == "authorization_granted"
-                self.saveSyncState()
-                self.isSyncInProgress = false
-            }
-        }
     }
 
     private var latestSleepNightAggregate: SleepNightAggregate? {

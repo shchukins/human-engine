@@ -108,6 +108,8 @@ final class APIClient {
     func sendHealthPayload(
         _ payload: HealthSyncPayload,
         userID: String,
+        attemptID: String = UUID().uuidString,
+        source: String = "manual_unspecified",
         completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
     ) {
         let url = baseURL
@@ -117,7 +119,7 @@ final class APIClient {
             .appendingPathComponent("full-sync")
             .appendingPathComponent(userID)
 
-        print("health_sync_request url=\(url.absoluteString)")
+        print("health_sync_request attempt_id=\(attemptID) source=\(source) url=\(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -136,7 +138,7 @@ final class APIClient {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error {
-                    print("health_sync_request network_error=\(error.localizedDescription)")
+                    print("health_sync_request attempt_id=\(attemptID) source=\(source) network_error=\(error.localizedDescription)")
                     completion(.failure(error))
                     return
                 }
@@ -146,7 +148,7 @@ final class APIClient {
                     return
                 }
 
-                print("health_sync_response status=\(httpResponse.statusCode)")
+                print("health_sync_response attempt_id=\(attemptID) source=\(source) status=\(httpResponse.statusCode)")
 
                 guard let data else {
                     completion(.failure(APIError.emptyResponseBody))

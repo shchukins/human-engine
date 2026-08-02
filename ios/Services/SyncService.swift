@@ -82,6 +82,10 @@ final class SyncService {
         }
     }
 
+    func performRecoverySync(completion: @escaping (Result<FullSyncData, Error>) -> Void) {
+        performFullSync(completion: completion)
+    }
+
     // TODO: Remove this temporary migration backfill path after historical HealthKit recovery is no longer needed.
     func performBackfill(
         from startDate: Date,
@@ -204,11 +208,15 @@ final class SyncService {
     func sendPayload(
         _ payload: HealthSyncPayload,
         userID: String,
+        attemptID: String = UUID().uuidString,
+        source: String = "manual_unspecified",
         completion: @escaping (Result<HealthIngestAndProcessResponse, Error>) -> Void
     ) {
         APIClient.shared.sendHealthPayload(
             payload,
             userID: userID,
+            attemptID: attemptID,
+            source: source,
             completion: completion
         )
     }

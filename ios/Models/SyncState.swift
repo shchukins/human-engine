@@ -21,6 +21,7 @@ struct SyncState: Codable {
     var lastSentItemCount: Int = 0
     var lastSyncMode: SyncMode?
     var hasPendingAutoSync: Bool = false
+    var lastRecoveryPayloadFingerprint: String?
 
     static let empty = SyncState()
 }

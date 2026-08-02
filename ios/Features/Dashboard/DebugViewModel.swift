@@ -217,7 +217,9 @@ final class DebugViewModel {
 
         SyncService.shared.sendPayload(
             payload,
-            userID: backendUserID
+            userID: backendUserID,
+            attemptID: UUID().uuidString,
+            source: "debug_view_manual_\(mode.rawValue)"
         ) { [weak self] result in
             guard let self else {
                 completion()
