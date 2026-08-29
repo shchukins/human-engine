@@ -287,6 +287,7 @@ Load model v2.
 
 - `load_state_daily_v2`
 - `health_recovery_daily`
+- `activity_subjective_feedback` for optional date-level morning feeling
 
 Ключевые поля:
 
@@ -298,6 +299,12 @@ Load model v2.
 - `status_text`
 - `explanation_json`
 - `version`
+
+Current writes use `version = v2_signal_composition`. The `(user_id, date,
+version)` key preserves legacy `v2` rows instead of rewriting them. The
+`explanation_json.signal_families` object stores availability, usage, score,
+effective weight, contribution, reason codes, and family-specific data for
+`load`, `freshness`, `response`, `feeling`, and `physiology`.
 
 `updated_at` is the public `readiness_computed_at` evidence. No schema migration
 is required for readiness source-data freshness. Each new computation stores an
@@ -572,7 +579,10 @@ activity_subjective_feedback
 
 - субъективный feedback хранится отдельно от deterministic model state
 - snapshot в `context_json` фиксирует состояние модели на момент ответа
-- feedback не меняет upstream readiness или load tables
+- post-ride RPE не меняет upstream readiness или load tables до #118
+- date-level `next_day_recovery` читается новой readiness composition как
+  explicit `feeling` signal; upsert запускает deterministic recompute, но не
+  переписывает feedback snapshot или legacy readiness version
 
 ---
 
@@ -582,7 +592,7 @@ activity_subjective_feedback
 
 - raw данные не изменяются
 - normalized и derived таблицы можно пересчитать
-- readiness считается из сохраненных load и recovery layers
+- readiness считается из сохраненных load, feeling и optional physiology layers
 
 ---
 

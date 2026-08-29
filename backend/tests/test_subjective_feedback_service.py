@@ -344,6 +344,12 @@ def test_upsert_activity_subjective_feedback_updates_existing_row(monkeypatch):
 
 
 def test_upsert_next_day_recovery_feedback_uses_date_level_uniqueness(monkeypatch):
+    recompute_calls = []
+    monkeypatch.setattr(
+        feedback_service,
+        "recompute_readiness_daily_for_date",
+        lambda user_id, target_date: recompute_calls.append((user_id, target_date)) or {"ok": True},
+    )
     load_cursor = _FakeCursor(fetchone_values=[(2, 85.0)], fetchall_values=[[(17855535922,), (17855535923,)]])
     readiness_cursor = _FakeCursor(
         [
@@ -416,10 +422,17 @@ def test_upsert_next_day_recovery_feedback_uses_date_level_uniqueness(monkeypatc
     assert result["feedback_type"] == "next_day_recovery"
     assert result["feedback_value"] == "fresh"
     assert result["feedback_payload"]["linked_activity_ids"] == [17855535922, 17855535923]
+    assert result["readiness"] == {"ok": True}
+    assert recompute_calls == [("user-1", "2026-05-15")]
     assert write_cursor.execute_calls[0][1] == ("user-1", "2026-05-15", "next_day_recovery")
 
 
 def test_upsert_next_day_recovery_feedback_updates_existing_row(monkeypatch):
+    monkeypatch.setattr(
+        feedback_service,
+        "recompute_readiness_daily_for_date",
+        lambda user_id, target_date: {"ok": True},
+    )
     load_cursor = _FakeCursor(fetchone_values=[(1, 42.0)], fetchall_values=[[(17855535922,)]])
     readiness_cursor = _FakeCursor(
         [

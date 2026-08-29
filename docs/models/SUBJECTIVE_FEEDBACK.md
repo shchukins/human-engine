@@ -4,7 +4,10 @@
 
 `activity_subjective_feedback` stores lightweight subjective feedback that acts as a user-reported ground truth layer.
 
-It captures how training felt and how recovery felt, while keeping the deterministic readiness pipeline unchanged.
+It captures how training felt and how recovery felt. In
+`v2_signal_composition`, date-level next-day recovery is also an explicit
+current-day `feeling` input; post-ride RPE remains an outcome until #118 adds
+versioned response metrics.
 
 Current scope:
 
@@ -428,14 +431,16 @@ The subjective feedback layer does not:
 
 - change load calculations
 - change recovery calculations
-- change readiness calculations
-- change recommendation logic in production
+- derive a readiness score directly from raw post-ride RPE
+- adapt readiness weights or recommendation thresholds implicitly
 
 It does:
 
 - record user-reported outcomes
 - preserve historical system context
 - create an evaluation dataset for future calibration work
+- provide date-level `next_day_recovery` as a deterministic `feeling` signal
+- trigger current-day readiness recomputation after an idempotent feeling upsert
 
 This boundary keeps Whatte deterministic while making later validation possible.
 

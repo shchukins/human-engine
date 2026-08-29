@@ -114,7 +114,9 @@ Recovery не заменяет fatigue, а корректирует readiness п
 В текущей model v2 readiness:
 
 - не равен `freshness`
-- строится как функция `load_state + recovery_state`
+- строится как versioned composition семейств `load`, `freshness`, `response`,
+  `feeling`, `physiology`
+- использует physiology только когда она доступна
 - хранится отдельно в `readiness_daily`
 
 Должен быть:

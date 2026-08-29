@@ -63,7 +63,7 @@ def test_get_readiness_daily_history_reads_last_n_rows_in_ascending_order(monkey
     assert "order by date desc" in query
     assert "limit %s" in query
     assert "interval" not in query.lower()
-    assert params == ("sergey", 3)
+    assert params == ("sergey", "v2_signal_composition", 3)
 
 
 def test_readiness_history_endpoint_returns_ascending_points(monkeypatch):

@@ -184,7 +184,7 @@ def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch
     assert "order by date desc" in query
     assert "limit 1" in query
     assert "date = %s" not in query
-    assert params == ("sergey",)
+    assert params == ("sergey", "v2_signal_composition")
 
 
 def test_date_specific_legacy_row_degrades_to_missing(monkeypatch):

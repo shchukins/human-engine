@@ -21,6 +21,8 @@ from backend.services.activity_deduplication_service import (
     set_manual_exclusion,
 )
 from backend.services.decision_engine import build_recommendation
+from backend.services.readiness_composition import READINESS_MODEL_VERSION
+from backend.services.readiness_daily import recompute_readiness_daily_for_date
 from backend.services.telegram_service import (
     answer_telegram_callback,
     edit_telegram_message,
@@ -409,10 +411,10 @@ def build_feedback_context_snapshot(user_id: str, *, target_date: str | date | N
                     from readiness_daily
                     where user_id = %s
                       and date = %s
-                      and version = 'v2'
+                      and version = %s
                     limit 1;
                     """,
-                    (user_id, _coerce_iso_date(target_date)),
+                    (user_id, _coerce_iso_date(target_date), READINESS_MODEL_VERSION),
                 )
             else:
                 cur.execute(
@@ -425,11 +427,11 @@ def build_feedback_context_snapshot(user_id: str, *, target_date: str | date | N
                         explanation_json
                     from readiness_daily
                     where user_id = %s
-                      and version = 'v2'
+                      and version = %s
                     order by date desc
                     limit 1;
                     """,
-                    (user_id,),
+                    (user_id, READINESS_MODEL_VERSION),
                 )
             row = cur.fetchone()
 
@@ -988,7 +990,7 @@ def upsert_next_day_recovery_feedback(
     )
     context_snapshot.update(feedback_payload)
 
-    return upsert_subjective_feedback(
+    result = upsert_subjective_feedback(
         user_id=user_id,
         activity_date=recovery_context["target_date"],
         feedback_type=FEEDBACK_TYPE_NEXT_DAY_RECOVERY,
@@ -999,6 +1001,13 @@ def upsert_next_day_recovery_feedback(
         context=context_snapshot,
         feedback_schema_version=feedback_schema_version,
     )
+    # Morning feeling is a first-class current-day input. Recompute only after
+    # the idempotent feedback upsert commits so every surface reads one backend-owned state.
+    result["readiness"] = recompute_readiness_daily_for_date(
+        user_id=user_id,
+        target_date=recovery_context["target_date"],
+    )
+    return result
 
 
 def send_next_day_recovery_prompt(user_id: str, recovery_date: str | date) -> dict[str, Any]:

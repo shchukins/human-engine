@@ -115,7 +115,7 @@ Data ingestion
 ↓  
 Raw / normalized storage  
 ↓  
-LoadState + RecoveryState  
+load + freshness + response + feeling + optional physiology
 ↓  
 Readiness  
 ↓  
@@ -133,6 +133,8 @@ Recommendation
 
 - HealthKit ingestion и full-sync уже работают в backend
 - recovery и readiness уже materialized как отдельные daily layers
+- current readiness composition работает без обязательной physiology и
+  публикует availability/contribution по каждому signal family
 - baseline decision / recommendation layer уже реализован как deterministic mapping поверх `readiness_daily`
 - более широкий recommendation / planning layer остается planned
 

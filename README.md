@@ -57,9 +57,9 @@ Planned capabilities are not part of the current production baseline.
 ## How it works
 
 ```text
-Strava + Apple Health
+Strava + optional Apple Health + subjective feedback
         ↓
-load + recovery
+load + freshness + response + feeling + optional physiology
         ↓
 readiness
         ↓

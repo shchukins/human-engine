@@ -614,7 +614,7 @@ def recompute_after_activity_state_change(
             cur.execute(
                 """
                 select date
-                from readiness_daily
+                from load_state_daily_v2
                 where user_id = %s
                   and date >= %s
                   and version = 'v2'

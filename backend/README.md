@@ -145,12 +145,14 @@ FastAPI + PostgreSQL
 
 - `readiness_daily`
 
-Текущий readiness baseline:
+Текущий readiness baseline (`v2_signal_composition`):
 
-- объединяет load contour и recovery contour
-- использует `freshness` из `load_state_daily_v2`
-- использует `recovery_score_simple` из `health_recovery_daily`
-- считает `readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple`
+- публикует независимые семейства `load`, `freshness`, `response`, `feeling`, `physiology`
+- работает от `freshness` без обязательного HealthKit
+- использует date-level `next_day_recovery` как optional first-class `feeling`
+- использует `recovery_score_simple` как optional `physiology`
+- нормализует веса только по доступным scored-семействам; missing physiology не штрафует score
+- сохраняет legacy `v2` rows отдельно и пишет новые rows с version `v2_signal_composition`
 - сохраняет `readiness_score`
 - сохраняет `good_day_probability`
 - сохраняет `status_text`
@@ -160,7 +162,8 @@ FastAPI + PostgreSQL
 
 - readiness хранится отдельно от `load_state_daily_v2`
 - readiness не равен `freshness`
-- readiness собирается из двух контуров: load + recovery
+- `load` не получает отдельный score поверх `freshness`, чтобы не учитывать одну нагрузку дважды
+- `response` остается unavailable до materialized metrics из #118
 - текущий `good_day_probability` является baseline probability-like mapping:
   - `good_day_probability = readiness_score / 100`
   - это не статистически откалиброванная вероятность
@@ -201,8 +204,10 @@ Recovery breakdown внутри `explanation_json.recovery_explanation`:
 Важно:
 
 - это не ML layer
-- feedback не влияет на core calculations
-- feedback хранится как отдельный evaluation / calibration dataset
+- post-ride RPE пока хранится как evaluation / calibration dataset и войдет в
+  readiness только через versioned response metrics из #118
+- date-level `next_day_recovery` является явным `feeling` input для
+  `v2_signal_composition`; после upsert readiness пересчитывается детерминированно
 
 ## Internal dashboard surface
 

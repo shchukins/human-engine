@@ -31,16 +31,18 @@
 
 ## 3. State model
 
-### 3.1 Model V2 overview
+### 3.1 Current signal-composition overview
 
 ```text
-LoadState + RecoveryState -> Readiness -> GoodDayProbability
+load + freshness + response + feeling + optional physiology
+-> Readiness -> GoodDayProbability
 ```
 
 Где:
 
 - `LoadState` materialized в `load_state_daily_v2`
 - `RecoveryState` materialized в `health_recovery_daily`
+- morning `feeling` хранится в `activity_subjective_feedback`
 - `Readiness` materialized в `readiness_daily`
 - `GoodDayProbability` хранится как отдельный output внутри `readiness_daily`
 
@@ -86,12 +88,16 @@ LoadState + RecoveryState -> Readiness -> GoodDayProbability
   - `hrv_baseline`
   - `rhr_baseline`
 
-### 3.4 Readiness inputs
+### 3.4 Readiness signal families
 
-Текущая readiness model v2 использует:
+Текущая версия `v2_signal_composition` публикует пять стабильных семейств:
 
-- `freshness` из `load_state_daily_v2`
-- `recovery_score_simple` из `health_recovery_daily`
+- `load` — доступный контекст load state; отдельно не взвешивается, чтобы не
+  учитывать одну нагрузку дважды
+- `freshness` — readiness-bearing summary load state
+- `response` — зарезервирован для versioned metrics из #118; пока unavailable
+- `feeling` — утренняя субъективная recovery-оценка 1-5
+- `physiology` — optional `recovery_score_simple` из `health_recovery_daily`
 
 ---
 
@@ -142,7 +148,7 @@ Recovery contour формируется в `health_recovery_daily` из:
 - имя `recovery_score_simple` сохранено для совместимости схемы и API
 - по факту текущий backend baseline уже использует baseline-aware scoring
 
-### 4.3 Baseline formula v2
+### 4.3 Signal composition formula
 
 Сначала `freshness` нормализуется:
 
@@ -150,19 +156,26 @@ Recovery contour формируется в `health_recovery_daily` из:
 freshness_norm = clamp(50 + freshness, 0, 100)
 ```
 
-Затем readiness считается так:
+`freshness` имеет configured weight `0.6`. Доступные `feeling` и `physiology`
+делят evidence budget `0.4`. Недоступные scored-сигналы исключаются, после чего
+доступные веса нормализуются до `1.0`.
 
 ```text
-readiness = 0.6 * freshness_norm + 0.4 * recovery_score_simple
-readiness_score_raw = readiness
+feeling_norm = (feeling_score - 1) * 25
+readiness_score_raw = sum(available_signal_score * normalized_effective_weight)
 ```
 
-Fallback behavior:
+Основные комбинации:
 
-- если есть и load, и recovery, используется полная формула `0.6 * freshness_norm + 0.4 * recovery_score_simple`
-- если есть только recovery, используется `recovery_only` fallback и `readiness_score_raw = recovery_score_simple`
-- если есть только load, используется `load_only` fallback и `readiness_score_raw = freshness_norm`
-- если нет ни load, ни recovery, backend возвращает `404` и не создает row в `readiness_daily`
+- freshness only: `1.0 * freshness_norm`
+- freshness + physiology: `0.6 * freshness_norm + 0.4 * physiology`
+- freshness + feeling: `0.6 * freshness_norm + 0.4 * feeling`
+- freshness + feeling + physiology: `0.6 * freshness_norm + 0.2 * feeling + 0.2 * physiology`
+- если нет ни одного scored-сигнала, backend возвращает `404`
+
+Missing physiology имеет state `unavailable`, contribution `0` и никогда не
+интерпретируется как плохое recovery. Полное обоснование phase 1 зафиксировано в
+`docs/architecture/READINESS_SIGNAL_COMPOSITION_PROPOSAL.md`.
 
 ### 4.4 Final outputs
 
@@ -180,7 +193,8 @@ good_day_probability = readiness_score / 100
 - `status_text`
 - `explanation_json`
 
-Readiness считается по дням и сохраняется в `readiness_daily` с `version = 'v2'`.
+Новые вычисления сохраняются с `version = 'v2_signal_composition'`. Legacy rows
+с `version = 'v2'` не перезаписываются.
 
 ---
 
@@ -471,7 +485,7 @@ Source of truth:
 
 `readiness_daily` remains a deterministic derived-state layer.
 
-`activity_subjective_feedback` is a separate ground truth layer used for later evaluation.
+`activity_subjective_feedback` остается отдельным persisted feedback layer.
 
 The intended comparison is:
 
@@ -486,8 +500,10 @@ This separation matters because:
 
 Current state:
 
-- subjective feedback does not change readiness formula
-- subjective feedback does not change recommendation logic
+- date-level `next_day_recovery` участвует как explicit `feeling` signal в
+  `v2_signal_composition`; исходный context snapshot сохраняет состояние до ответа
+- post-ride RPE пока не меняет readiness и остается calibration input до #118
+- feedback не запускает скрытую адаптацию весов или thresholds
 - `good_day_probability` still has no statistical calibration
 - the feedback dataset is being accumulated for future validation and calibration work
 

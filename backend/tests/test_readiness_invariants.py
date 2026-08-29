@@ -6,9 +6,10 @@ from backend.services import health_recovery_daily, load_state_v2, readiness_dai
 
 
 class _FakeReadinessCursor:
-    def __init__(self, load_row, recovery_row) -> None:
+    def __init__(self, load_row, recovery_row, feeling_row=None) -> None:
         self._load_row = load_row
         self._recovery_row = recovery_row
+        self._feeling_row = feeling_row
         self._last_query = ""
         self.insert_params: list[tuple] = []
 
@@ -28,6 +29,8 @@ class _FakeReadinessCursor:
             return self._load_row
         if "from health_recovery_daily" in self._last_query:
             return self._recovery_row
+        if "from activity_subjective_feedback" in self._last_query:
+            return self._feeling_row
         return None
 
 
@@ -197,12 +200,12 @@ def test_high_acute_load_reduces_readiness_for_same_recovery(monkeypatch):
 
     lower_readiness, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(lower_load["freshness"],),
+        load_row=(40.0, 40.0, None, None, None, lower_load["fatigue_total"], lower_load["freshness"]),
         recovery_row=(70.0, {"sleep_minutes": 480.0, "hrv_today": 58.0, "rhr_today": 49.0}),
     )
     higher_readiness, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(higher_load["freshness"],),
+        load_row=(140.0, 140.0, None, None, None, higher_load["fatigue_total"], higher_load["freshness"]),
         recovery_row=(70.0, {"sleep_minutes": 480.0, "hrv_today": 58.0, "rhr_today": 49.0}),
     )
 
@@ -212,12 +215,12 @@ def test_high_acute_load_reduces_readiness_for_same_recovery(monkeypatch):
 def test_better_recovery_increases_readiness_for_same_freshness(monkeypatch):
     lower_recovery, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(5.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 5.0),
         recovery_row=(45.0, {"sleep_minutes": 360.0, "hrv_today": 42.0, "rhr_today": 58.0}),
     )
     higher_recovery, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(5.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 5.0),
         recovery_row=(75.0, {"sleep_minutes": 510.0, "hrv_today": 60.0, "rhr_today": 48.0}),
     )
 
@@ -227,12 +230,12 @@ def test_better_recovery_increases_readiness_for_same_freshness(monkeypatch):
 def test_higher_freshness_does_not_reduce_readiness_for_same_recovery(monkeypatch):
     lower_freshness, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(-8.0,),
+        load_row=(0.0, 0.0, None, None, None, None, -8.0),
         recovery_row=(68.0, {"sleep_minutes": 470.0, "hrv_today": 55.0, "rhr_today": 50.0}),
     )
     higher_freshness, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(8.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 8.0),
         recovery_row=(68.0, {"sleep_minutes": 470.0, "hrv_today": 55.0, "rhr_today": 50.0}),
     )
 
@@ -242,12 +245,12 @@ def test_higher_freshness_does_not_reduce_readiness_for_same_recovery(monkeypatc
 def test_readiness_is_deterministic_for_same_snapshot(monkeypatch):
     first_result, first_explanation = _build_readiness_result(
         monkeypatch,
-        load_row=(3.5,),
+        load_row=(0.0, 0.0, None, None, None, None, 3.5),
         recovery_row=(64.0, {"sleep_minutes": 450.0, "hrv_today": 54.0, "rhr_today": 49.0}),
     )
     second_result, second_explanation = _build_readiness_result(
         monkeypatch,
-        load_row=(3.5,),
+        load_row=(0.0, 0.0, None, None, None, None, 3.5),
         recovery_row=(64.0, {"sleep_minutes": 450.0, "hrv_today": 54.0, "rhr_today": 49.0}),
     )
 
@@ -260,12 +263,12 @@ def test_readiness_is_deterministic_for_same_snapshot(monkeypatch):
 def test_readiness_score_stays_within_bounds_for_extreme_inputs(monkeypatch):
     very_low, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(-500.0,),
+        load_row=(0.0, 0.0, None, None, None, None, -500.0),
         recovery_row=(-20.0, {"sleep_minutes": 0.0, "hrv_today": 1.0, "rhr_today": 200.0}),
     )
     very_high, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(500.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 500.0),
         recovery_row=(180.0, {"sleep_minutes": 1000.0, "hrv_today": 200.0, "rhr_today": 30.0}),
     )
 
@@ -388,22 +391,22 @@ def test_readiness_fallback_modes_are_deterministic(monkeypatch):
     # They must stay reproducible because upstream data completeness varies.
     full_first, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(4.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 4.0),
         recovery_row=(66.0, {"sleep_minutes": 450.0, "hrv_today": 56.0, "rhr_today": 49.0}),
     )
     full_second, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(4.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 4.0),
         recovery_row=(66.0, {"sleep_minutes": 450.0, "hrv_today": 56.0, "rhr_today": 49.0}),
     )
     load_only_first, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(4.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 4.0),
         recovery_row=None,
     )
     load_only_second, _ = _build_readiness_result(
         monkeypatch,
-        load_row=(4.0,),
+        load_row=(0.0, 0.0, None, None, None, None, 4.0),
         recovery_row=None,
     )
     recovery_only_first, _ = _build_readiness_result(

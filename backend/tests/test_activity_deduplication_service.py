@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
 
 import pytest
 
 from backend.services import activity_deduplication_service as dedup
+from backend.services import fitness_service, load_service, load_state_v2, readiness_daily
 from backend.services import notification_service
 from backend.services import subjective_feedback_service as feedback
 
@@ -318,3 +319,54 @@ def test_resolve_canonical_activity_rejects_cycle(monkeypatch):
 def test_user_visible_telegram_builders_do_not_contain_legacy_brand():
     assert "Human Engine" not in inspect.getsource(notification_service)
     assert "Human Engine" not in inspect.getsource(feedback)
+
+
+def test_activity_recompute_creates_readiness_from_load_state_dates(monkeypatch):
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+        def fetchall(self):
+            return [(date(2026, 8, 29),), (date(2026, 8, 30),)]
+
+    class Conn:
+        def __init__(self):
+            self.cursor_instance = Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def cursor(self):
+            return self.cursor_instance
+
+    conn = Conn()
+    recomputed = []
+    monkeypatch.setattr(load_service, "recompute_daily_load_all", lambda user_id: {"ok": True})
+    monkeypatch.setattr(fitness_service, "recompute_fitness_state", lambda user_id: {"ok": True})
+    monkeypatch.setattr(load_state_v2, "recompute_load_state_daily_v2", lambda user_id: {"ok": True})
+    monkeypatch.setattr(
+        readiness_daily,
+        "recompute_readiness_daily_for_date",
+        lambda user_id, target_date: recomputed.append((user_id, target_date)),
+    )
+    monkeypatch.setattr(dedup, "get_conn", lambda: conn)
+
+    result = dedup.recompute_after_activity_state_change("user-1", date(2026, 8, 29))
+
+    assert "from load_state_daily_v2" in conn.cursor_instance.query
+    assert conn.cursor_instance.params == ("user-1", date(2026, 8, 29))
+    assert recomputed == [
+        ("user-1", "2026-08-29"),
+        ("user-1", "2026-08-30"),
+    ]
+    assert result["readiness_dates"] == ["2026-08-29", "2026-08-30"]

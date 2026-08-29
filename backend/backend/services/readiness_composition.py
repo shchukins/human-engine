@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+READINESS_MODEL_VERSION = "v2_signal_composition"
+READINESS_MODEL_NAME = "readiness_signal_composition"
+READINESS_FORMULA_VERSION = "signal_weighted_v1"
+
+FRESHNESS_CONFIGURED_WEIGHT = 0.6
+RECOVERY_EVIDENCE_WEIGHT = 0.4
+
+SIGNAL_FAMILIES = ("load", "freshness", "response", "feeling", "physiology")
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def normalize_freshness(freshness: float | None) -> float | None:
+    """Map load-state freshness to the established deterministic 0..100 scale."""
+    if freshness is None:
+        return None
+    return _clamp(50.0 + freshness, 0.0, 100.0)
+
+
+def normalize_feeling(feeling_score: int | float | None) -> float | None:
+    """Map the explicit 1..5 morning scale to 0..100 with a neutral midpoint."""
+    if feeling_score is None:
+        return None
+    if feeling_score < 1 or feeling_score > 5:
+        raise ValueError("feeling_score must be between 1 and 5")
+    return round((float(feeling_score) - 1.0) * 25.0, 1)
+
+
+def _family(
+    *,
+    availability: str,
+    used: bool,
+    score: float | None,
+    configured_weight: float,
+    effective_weight: float,
+    contribution: float,
+    reason_codes: list[str],
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "availability": availability,
+        "used": used,
+        "score": score,
+        "configured_weight": configured_weight,
+        "effective_weight": effective_weight,
+        "contribution": contribution,
+        "reason_codes": reason_codes,
+        "data": data or {},
+    }
+
+
+def compose_readiness(
+    *,
+    load_context: dict[str, Any] | None,
+    freshness: float | None,
+    feeling_score: int | float | None,
+    physiology_score: float | None,
+    physiology_explanation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Compose readiness from available signal families without missing-data penalties.
+
+    Load is exposed as context while freshness carries its score contribution,
+    preventing the same load state from being counted twice. Response remains a
+    stable unavailable slot until issue #118 provides versioned response metrics.
+    """
+    freshness_score = normalize_freshness(freshness)
+    feeling_normalized = normalize_feeling(feeling_score)
+    physiology_normalized = (
+        _clamp(float(physiology_score), 0.0, 100.0)
+        if physiology_score is not None
+        else None
+    )
+
+    evidence_scores = {
+        "feeling": feeling_normalized,
+        "physiology": physiology_normalized,
+    }
+    available_evidence = [
+        name for name, score in evidence_scores.items() if score is not None
+    ]
+    evidence_weight_each = (
+        RECOVERY_EVIDENCE_WEIGHT / len(available_evidence)
+        if available_evidence
+        else 0.0
+    )
+
+    configured_weights = {
+        "freshness": FRESHNESS_CONFIGURED_WEIGHT if freshness_score is not None else 0.0,
+        "feeling": evidence_weight_each if feeling_normalized is not None else 0.0,
+        "physiology": evidence_weight_each if physiology_normalized is not None else 0.0,
+    }
+    configured_total = sum(configured_weights.values())
+    if configured_total == 0.0:
+        raise ValueError("at least one scored readiness signal must be available")
+
+    effective_weights = {
+        name: weight / configured_total for name, weight in configured_weights.items()
+    }
+    scored_values = {
+        "freshness": freshness_score,
+        "feeling": feeling_normalized,
+        "physiology": physiology_normalized,
+    }
+    contributions = {
+        name: round((scored_values[name] or 0.0) * effective_weights[name], 3)
+        for name in scored_values
+    }
+    readiness_score_raw = sum(contributions.values())
+    readiness_score = _clamp(round(readiness_score_raw, 1), 0.0, 100.0)
+
+    load_available = load_context is not None
+    families = {
+        "load": _family(
+            availability="available" if load_available else "unavailable",
+            used=False,
+            score=None,
+            configured_weight=0.0,
+            effective_weight=0.0,
+            contribution=0.0,
+            reason_codes=[
+                "load_context_exposed_via_freshness"
+                if load_available
+                else "load_state_unavailable"
+            ],
+            data=load_context,
+        ),
+        "freshness": _family(
+            availability="available" if freshness_score is not None else "unavailable",
+            used=freshness_score is not None,
+            score=freshness_score,
+            configured_weight=configured_weights["freshness"],
+            effective_weight=effective_weights["freshness"],
+            contribution=contributions["freshness"],
+            reason_codes=[] if freshness_score is not None else ["freshness_unavailable"],
+            data={"raw_freshness": freshness},
+        ),
+        "response": _family(
+            availability="unavailable",
+            used=False,
+            score=None,
+            configured_weight=0.0,
+            effective_weight=0.0,
+            contribution=0.0,
+            reason_codes=["response_metrics_not_materialized"],
+        ),
+        "feeling": _family(
+            availability="available" if feeling_normalized is not None else "unavailable",
+            used=feeling_normalized is not None,
+            score=feeling_normalized,
+            configured_weight=configured_weights["feeling"],
+            effective_weight=effective_weights["feeling"],
+            contribution=contributions["feeling"],
+            reason_codes=(
+                [] if feeling_normalized is not None else ["morning_feeling_unavailable"]
+            ),
+            data={"scale": "1_5", "raw_score": feeling_score},
+        ),
+        "physiology": _family(
+            availability="available" if physiology_normalized is not None else "unavailable",
+            used=physiology_normalized is not None,
+            score=physiology_normalized,
+            configured_weight=configured_weights["physiology"],
+            effective_weight=effective_weights["physiology"],
+            contribution=contributions["physiology"],
+            reason_codes=[] if physiology_normalized is not None else ["physiology_unavailable"],
+            data={"explanation": physiology_explanation},
+        ),
+    }
+
+    return {
+        "readiness_score_raw": readiness_score_raw,
+        "readiness_score": readiness_score,
+        "signal_families": families,
+        "reason_codes": [
+            code
+            for family in SIGNAL_FAMILIES
+            for code in families[family]["reason_codes"]
+        ],
+        "model": {
+            "name": READINESS_MODEL_NAME,
+            "version": READINESS_MODEL_VERSION,
+            "formula_version": READINESS_FORMULA_VERSION,
+        },
+    }

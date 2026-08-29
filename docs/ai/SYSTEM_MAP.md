@@ -255,16 +255,23 @@ Materialized in:
 
 Current role:
 
-- combines `LoadState` and `RecoveryState`
+- composes explicit `load`, `freshness`, `response`, `feeling`, and optional
+  `physiology` signal families
 - remains separate from raw freshness and separate from downstream recommendation
+- works without HealthKit; missing physiology is unavailable rather than negative
 
 Current baseline formula:
 
 ```text
 freshness_norm = clamp(50 + freshness, 0, 100)
-readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
+feeling_norm = (feeling_score - 1) * 25
+readiness_score_raw = weighted average of available scored signal families
 readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
 ```
+
+`freshness` has configured weight `0.6`; available `feeling` and `physiology`
+share the `0.4` evidence budget. `response` is explicitly unavailable until #118.
+Current writes use version `v2_signal_composition`; legacy `v2` rows remain stored.
 
 ### GoodDayProbability
 

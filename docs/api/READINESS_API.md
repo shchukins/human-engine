@@ -27,11 +27,14 @@ POST /api/v1/model/readiness-daily/{user_id}/{date}
 - `good_day_probability`
 - `status_text`
 - `fallback_mode`
+- `model_version`
+- `signal_families`
+- `reason_codes`
 - `explanation_json`
 
 ### Notes
 
-- используется текущая Model V2 baseline
+- используется текущая версия `v2_signal_composition`
 - readiness сохраняется в `readiness_daily`
 - fallback mode отражает, какой контур был доступен при расчете
 
@@ -72,16 +75,37 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
     "resting_hr": "ok",
     "training": "ok"
   },
+  "model": {
+    "name": "readiness_signal_composition",
+    "version": "v2_signal_composition",
+    "formula_version": "signal_weighted_v1"
+  },
+  "reason_codes": ["response_metrics_not_materialized"],
+  "signal_families": {
+    "freshness": {
+      "availability": "available",
+      "used": true,
+      "score": 54.0,
+      "effective_weight": 0.6,
+      "contribution": 32.4,
+      "reason_codes": []
+    },
+    "physiology": {
+      "availability": "available",
+      "used": true,
+      "score": 58.2,
+      "effective_weight": 0.4,
+      "contribution": 23.28,
+      "reason_codes": []
+    }
+  },
   "explanation": {
     "fallback_mode": null,
     "freshness": 4.0,
     "freshness_norm": 54.0,
     "recovery_score_simple": 58.2,
-    "weights": {
-      "freshness_norm": 0.6,
-      "recovery_score_simple": 0.4
-    },
-    "formula": "0.6 * freshness_norm + 0.4 * recovery_score_simple",
+    "feeling_score": null,
+    "formula": "signal_weighted_v1",
     "recovery_explanation": {
       "sleep_score": 82.8,
       "hrv_score": 42.1,
@@ -101,6 +125,9 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
 - `good_day_probability`
 - `status_text`
 - `data_quality`
+- `model`
+- `signal_families`
+- `reason_codes`
 - `explanation`
 - `recommendation`
 - `reason`
@@ -110,6 +137,7 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
 ### Notes
 
 - source of truth is `readiness_daily`
+- GET endpoints select `version = v2_signal_composition`; legacy `v2` rows remain stored but are not silently substituted
 - `recommendation`, `reason` and `briefing` are derived by deterministic decision logic
 - `data_quality` shows which input families were actually available; it is not a confidence score
 - current MVP returns `training = ok|missing`; `partial` is reserved for future unsupported/continuity-only load detection
@@ -136,7 +164,7 @@ GET /api/v1/model/readiness-daily/{user_id}/latest
 ### Behavior
 
 - читает `readiness_daily`
-- фильтрует по `user_id` и `version = 'v2'`
+- фильтрует по `user_id` и `version = 'v2_signal_composition'`
 - выбирает `order by date desc limit 1`
 - возвращает тот же response shape, что и date-specific GET endpoint
 

@@ -7,9 +7,10 @@ from backend.services import readiness_daily
 
 
 class _FakeCursor:
-    def __init__(self, load_row, recovery_row) -> None:
+    def __init__(self, load_row, recovery_row, feeling_row=None) -> None:
         self._load_row = load_row
         self._recovery_row = recovery_row
+        self._feeling_row = feeling_row
         self._last_query = ""
         self.insert_params: list[tuple] = []
 
@@ -29,6 +30,8 @@ class _FakeCursor:
             return self._load_row
         if "from health_recovery_daily" in self._last_query:
             return self._recovery_row
+        if "from activity_subjective_feedback" in self._last_query:
+            return self._feeling_row
         return None
 
 
@@ -50,8 +53,12 @@ class _FakeConn:
         self.committed = True
 
 
-def _build_result(monkeypatch, *, load_row, recovery_row):
-    fake_cursor = _FakeCursor(load_row=load_row, recovery_row=recovery_row)
+def _build_result(monkeypatch, *, load_row, recovery_row, feeling_row=None):
+    fake_cursor = _FakeCursor(
+        load_row=load_row,
+        recovery_row=recovery_row,
+        feeling_row=feeling_row,
+    )
     fake_conn = _FakeConn(fake_cursor)
 
     monkeypatch.setattr(readiness_daily, "get_conn", lambda: fake_conn)
@@ -69,7 +76,7 @@ def test_recompute_readiness_daily_uses_full_formula_and_propagates_recovery_exp
 
     result, explanation_json, fake_cursor, fake_conn = _build_result(
         monkeypatch,
-        load_row=(5.0,),
+        load_row=(80.0, 80.0, 50.0, 20.0, 10.0, 18.0, 5.0),
         recovery_row=(70.0, json.dumps(recovery_explanation)),
     )
 
@@ -123,7 +130,7 @@ def test_recompute_readiness_daily_uses_recovery_only_fallback(monkeypatch):
 def test_recompute_readiness_daily_uses_load_only_fallback(monkeypatch):
     result, explanation_json, _, _ = _build_result(
         monkeypatch,
-        load_row=(12.5,),
+        load_row=(60.0, 60.0, 50.0, 20.0, 10.0, 18.0, 12.5),
         recovery_row=None,
     )
 
@@ -156,6 +163,21 @@ def test_recompute_readiness_daily_returns_404_without_creating_row(monkeypatch)
         )
 
     assert exc_info.value.status_code == 404
-    assert "no load or recovery data found" in exc_info.value.detail
+    assert "no freshness, feeling, or physiology data found" in exc_info.value.detail
     assert fake_cursor.insert_params == []
     assert fake_conn.committed is False
+
+
+def test_recompute_readiness_daily_uses_morning_feeling_without_physiology(monkeypatch):
+    result, explanation_json, _, _ = _build_result(
+        monkeypatch,
+        load_row=(60.0, 60.0, 50.0, 20.0, 10.0, 18.0, 0.0),
+        recovery_row=None,
+        feeling_row=(5,),
+    )
+
+    assert result["readiness_score"] == 70.0
+    assert result["feeling_score"] == 5
+    assert result["signal_families"]["feeling"]["contribution"] == 40.0
+    assert explanation_json["signal_families"]["physiology"]["availability"] == "unavailable"
+    assert explanation_json["model"]["version"] == "v2_signal_composition"

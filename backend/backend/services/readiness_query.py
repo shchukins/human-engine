@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from backend.db import get_conn
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.readiness_freshness import classify_readiness_freshness
 
 
@@ -107,6 +108,9 @@ def _build_readiness_daily_response(
         "good_day_probability": good_day_probability,
         "status_text": status_text,
         "explanation": explanation_json,
+        "model": explanation.get("model", {"version": READINESS_MODEL_VERSION}),
+        "signal_families": explanation.get("signal_families", {}),
+        "reason_codes": explanation.get("reason_codes", []),
         "data_quality": _derive_data_quality(explanation_json),
         **freshness,
         "readiness_computed_at": _serialize_timestamp(readiness_computed_at),
@@ -134,9 +138,9 @@ def get_readiness_daily_for_date(user_id: str, target_date: str) -> dict[str, An
                 from readiness_daily
                 where user_id = %s
                   and date = %s
-                  and version = 'v2';
+                  and version = %s;
                 """,
-                (user_id, target_date),
+                (user_id, target_date, READINESS_MODEL_VERSION),
             )
             row = cur.fetchone()
 
@@ -173,11 +177,11 @@ def get_latest_readiness_daily(
                     updated_at
                 from readiness_daily
                 where user_id = %s
-                  and version = 'v2'
+                  and version = %s
                 order by date desc
                 limit 1;
                 """,
-                (user_id,),
+                (user_id, READINESS_MODEL_VERSION),
             )
             row = cur.fetchone()
 
@@ -206,11 +210,11 @@ def get_readiness_daily_history(user_id: str, days: int) -> dict[str, Any]:
                     explanation_json
                 from readiness_daily
                 where user_id = %s
-                  and version = 'v2'
+                  and version = %s
                 order by date desc
                 limit %s;
                 """,
-                (user_id, days),
+                (user_id, READINESS_MODEL_VERSION, days),
             )
             rows = cur.fetchall()
 

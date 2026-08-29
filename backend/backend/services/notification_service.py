@@ -17,6 +17,7 @@ from backend.services.activity_deduplication_service import (
 )
 from backend.services.activity_load_service import resolve_activity_load
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.subjective_feedback_service import send_post_ride_rpe_request
 from backend.services.telegram_service import (
     edit_telegram_message,
@@ -671,10 +672,10 @@ def build_daily_readiness_message(
     with get_conn() as conn:
         with conn.cursor() as cur:
             readiness_date_filter = ""
-            params: tuple[Any, ...] = (user_id,)
+            params: tuple[Any, ...] = (user_id, READINESS_MODEL_VERSION)
             if target_recovery_date is not None:
                 readiness_date_filter = "and date <= %s"
-                params = (user_id, target_recovery_date)
+                params = (user_id, READINESS_MODEL_VERSION, target_recovery_date)
 
             cur.execute(
                 f"""
@@ -686,7 +687,7 @@ def build_daily_readiness_message(
                     explanation_json
                 from readiness_daily
                 where user_id = %s
-                  and version = 'v2'
+                  and version = %s
                   {readiness_date_filter}
                 order by date desc
                 limit 1;

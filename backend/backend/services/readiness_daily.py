@@ -10,21 +10,12 @@ from fastapi import HTTPException
 from backend.core.logging import log_event
 from backend.db import get_conn
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.readiness_composition import (
+    READINESS_MODEL_VERSION,
+    compose_readiness,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
-
-
-def _normalize_freshness(freshness: float | None) -> float | None:
-    # Переводим freshness в грубую шкалу 0..100.
-    # Это временная эвристика для V2, пока без probability calibration.
-    if freshness is None:
-        return None
-
-    return _clamp(50.0 + freshness, 0.0, 100.0)
 
 
 def _describe_readiness_status(score: float | None) -> str:
@@ -41,14 +32,16 @@ def _describe_readiness_status(score: float | None) -> str:
     return "Очень свежий"
 
 
-def _detect_fallback_mode(
-    freshness_norm: float | None,
-    recovery_score_simple: float | None,
-) -> str | None:
-    if freshness_norm is None and recovery_score_simple is not None:
+def _detect_fallback_mode(signal_families: dict[str, Any]) -> str | None:
+    freshness_used = signal_families["freshness"]["used"]
+    feeling_used = signal_families["feeling"]["used"]
+    physiology_used = signal_families["physiology"]["used"]
+    if physiology_used and not freshness_used and not feeling_used:
         return "recovery_only"
-    if freshness_norm is not None and recovery_score_simple is None:
+    if freshness_used and not feeling_used and not physiology_used:
         return "load_only"
+    if feeling_used and not freshness_used and not physiology_used:
+        return "feeling_only"
     return None
 
 
@@ -66,7 +59,14 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select freshness
+                    select
+                        tss,
+                        load_input_nonlinear,
+                        fitness,
+                        fatigue_fast,
+                        fatigue_slow,
+                        fatigue_total,
+                        freshness
                     from load_state_daily_v2
                     where user_id = %s
                       and date = %s
@@ -89,40 +89,62 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                 )
                 recovery_row = cur.fetchone()
 
-                freshness = load_row[0] if load_row else None
+                cur.execute(
+                    """
+                    select feedback_score
+                    from activity_subjective_feedback
+                    where user_id = %s
+                      and activity_date = %s
+                      and feedback_type = 'next_day_recovery'
+                      and strava_activity_id is null
+                    order by updated_at desc
+                    limit 1;
+                    """,
+                    (user_id, target_date),
+                )
+                feeling_row = cur.fetchone()
+
+                load_context = (
+                    {
+                        "tss": load_row[0],
+                        "load_input_nonlinear": load_row[1],
+                        "fitness": load_row[2],
+                        "fatigue_fast": load_row[3],
+                        "fatigue_slow": load_row[4],
+                        "fatigue_total": load_row[5],
+                    }
+                    if load_row
+                    else None
+                )
+                freshness = load_row[6] if load_row else None
                 recovery_score_simple = recovery_row[0] if recovery_row else None
                 recovery_explanation = recovery_row[1] if recovery_row else None
+                feeling_score = feeling_row[0] if feeling_row else None
 
                 if isinstance(recovery_explanation, str):
                     recovery_explanation = json.loads(recovery_explanation)
 
-                if freshness is None and recovery_score_simple is None:
+                if freshness is None and recovery_score_simple is None and feeling_score is None:
                     raise HTTPException(
                         status_code=404,
-                        detail=f"no load or recovery data found for user_id={user_id} date={target_date}",
+                        detail=(
+                            "no freshness, feeling, or physiology data found for "
+                            f"user_id={user_id} date={target_date}"
+                        ),
                     )
 
-                freshness_norm = _normalize_freshness(freshness)
-
-                fallback_mode = _detect_fallback_mode(
-                    freshness_norm=freshness_norm,
-                    recovery_score_simple=recovery_score_simple,
+                composition = compose_readiness(
+                    load_context=load_context,
+                    freshness=freshness,
+                    feeling_score=feeling_score,
+                    physiology_score=recovery_score_simple,
+                    physiology_explanation=recovery_explanation,
                 )
-
-                # V2 baseline formula:
-                # readiness = 60% load-state + 40% recovery-state
-                if fallback_mode == "recovery_only":
-                    readiness_score_raw = recovery_score_simple
-                elif fallback_mode == "load_only":
-                    readiness_score_raw = freshness_norm
-                else:
-                    readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
-
-                readiness_score = (
-                    _clamp(round(readiness_score_raw, 1), 0.0, 100.0)
-                    if readiness_score_raw is not None
-                    else None
-                )
+                signal_families = composition["signal_families"]
+                fallback_mode = _detect_fallback_mode(signal_families)
+                freshness_norm = signal_families["freshness"]["score"]
+                readiness_score_raw = composition["readiness_score_raw"]
+                readiness_score = composition["readiness_score"]
 
                 good_day_probability = (
                     round(readiness_score / 100.0, 3)
@@ -150,11 +172,11 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     "freshness": freshness,
                     "freshness_norm": freshness_norm,
                     "recovery_score_simple": recovery_score_simple,
-                    "weights": {
-                        "freshness_norm": 0.6,
-                        "recovery_score_simple": 0.4,
-                    },
-                    "formula": "0.6 * freshness_norm + 0.4 * recovery_score_simple",
+                    "feeling_score": feeling_score,
+                    "signal_families": signal_families,
+                    "reason_codes": composition["reason_codes"],
+                    "model": composition["model"],
+                    "formula": composition["model"]["formula_version"],
                     "recovery_explanation": recovery_explanation,
                     "source_timestamps": {
                         # These are source-row dates, not fabricated timestamps.
@@ -180,7 +202,7 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                         updated_at
                     )
                     values (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, 'v2', now()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, now()
                     )
                     on conflict (user_id, date, version) do update set
                         freshness = excluded.freshness,
@@ -202,6 +224,7 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                         good_day_probability,
                         status_text,
                         json.dumps(explanation_json),
+                        READINESS_MODEL_VERSION,
                     ),
                 )
                 conn.commit()
@@ -225,11 +248,15 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
             "freshness": freshness,
             "freshness_norm": freshness_norm,
             "recovery_score_simple": recovery_score_simple,
+            "feeling_score": feeling_score,
             "readiness_score_raw": readiness_score_raw,
             "readiness_score": readiness_score,
             "good_day_probability": good_day_probability,
             "status_text": status_text,
             "fallback_mode": fallback_mode,
+            "model_version": READINESS_MODEL_VERSION,
+            "signal_families": signal_families,
+            "reason_codes": composition["reason_codes"],
             "explanation_json": explanation_json,
             **decision,
             **briefing,
