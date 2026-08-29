@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>{{ page_title }}</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --canvas: #0d1110;
+            --surface: #151b18;
+            --surface-raised: #1b2420;
+            --line: #2b3731;
+            --text: #f3f6f4;
+            --muted: #9ba9a1;
+            --lime: #b9f563;
+            --lime-dark: #17230e;
+            --amber: #ffca68;
+            --danger: #ff8e78;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-width: 320px;
+            background:
+                radial-gradient(circle at 90% 0, rgba(185, 245, 99, 0.11), transparent 28rem),
+                var(--canvas);
+            color: var(--text);
+        }
+
+        button { font: inherit; }
+
+        .shell {
+            width: min(100%, 720px);
+            margin: 0 auto;
+            padding: 22px 16px 48px;
+        }
+
+        .topline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .brand {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 760;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .date {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.84rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stack { display: grid; gap: 14px; }
+
+        .card {
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: rgba(21, 27, 24, 0.94);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        }
+
+        .hero {
+            position: relative;
+            overflow: hidden;
+            padding: 24px;
+            background: linear-gradient(145deg, #202a25 0%, #131916 75%);
+        }
+
+        .hero::after {
+            content: "";
+            position: absolute;
+            width: 160px;
+            height: 160px;
+            top: -90px;
+            right: -70px;
+            border: 30px solid rgba(185, 245, 99, 0.13);
+            border-radius: 50%;
+        }
+
+        .eyebrow {
+            margin: 0 0 9px;
+            color: var(--lime);
+            font-size: 0.72rem;
+            font-weight: 760;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .readiness-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 16px;
+        }
+
+        .score {
+            margin: 0;
+            font-size: clamp(4.4rem, 20vw, 7rem);
+            font-weight: 760;
+            line-height: 0.85;
+            letter-spacing: -0.07em;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .score-copy { padding-bottom: 4px; }
+
+        .status {
+            margin: 0 0 5px;
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .recommendation {
+            margin: 0;
+            color: var(--muted);
+            text-transform: capitalize;
+        }
+
+        .briefing {
+            position: relative;
+            z-index: 1;
+            margin: 22px 0 0;
+            max-width: 58ch;
+            color: #dbe3de;
+            line-height: 1.55;
+        }
+
+        .freshness {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .freshness strong { color: var(--text); font-weight: 650; }
+
+        .section-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 1.15rem;
+            letter-spacing: -0.02em;
+        }
+
+        .hint {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+            line-height: 1.4;
+        }
+
+        .saved {
+            margin: 0 0 14px;
+            padding: 11px 13px;
+            border: 1px solid rgba(185, 245, 99, 0.36);
+            border-radius: 12px;
+            background: var(--lime-dark);
+            color: var(--lime);
+            font-size: 0.88rem;
+        }
+
+        .scale {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 7px;
+        }
+
+        .scale form { min-width: 0; }
+
+        .scale-button {
+            width: 100%;
+            min-height: 68px;
+            padding: 8px 3px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--surface-raised);
+            color: var(--text);
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .scale-button:hover,
+        .scale-button:focus-visible {
+            border-color: var(--lime);
+            outline: 2px solid transparent;
+            transform: translateY(-1px);
+        }
+
+        .scale-button[aria-pressed="true"] {
+            border-color: var(--lime);
+            background: var(--lime);
+            color: #10150e;
+        }
+
+        .emoji {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 1.35rem;
+            line-height: 1;
+        }
+
+        .scale-label {
+            display: block;
+            overflow: hidden;
+            font-size: 0.66rem;
+            font-weight: 700;
+            line-height: 1.2;
+            text-overflow: ellipsis;
+        }
+
+        .activity-name {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 720;
+        }
+
+        .activity-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 10px 0 18px;
+            padding: 0;
+            list-style: none;
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .activity-meta li {
+            padding: 6px 9px;
+            border-radius: 999px;
+            background: var(--surface-raised);
+        }
+
+        .factors {
+            display: grid;
+            gap: 1px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--line);
+        }
+
+        .factor {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 13px;
+            background: var(--surface-raised);
+        }
+
+        .factor-name { font-size: 0.9rem; font-weight: 650; }
+
+        .factor-score {
+            color: var(--text);
+            font-size: 0.86rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .badge {
+            padding: 4px 7px;
+            border-radius: 999px;
+            background: #26312c;
+            color: var(--muted);
+            font-size: 0.68rem;
+            font-weight: 720;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .badge-used { background: var(--lime-dark); color: var(--lime); }
+        .badge-stale { background: #2b2418; color: var(--amber); }
+
+        .empty,
+        .error {
+            margin: 0;
+            padding: 14px;
+            border-radius: 13px;
+            color: var(--muted);
+            background: var(--surface-raised);
+            line-height: 1.45;
+        }
+
+        .error { color: var(--danger); }
+
+        @media (max-width: 420px) {
+            .shell { padding-inline: 12px; }
+            .card { padding: 17px; border-radius: 17px; }
+            .hero { padding: 21px 18px; }
+            .readiness-row { gap: 12px; }
+            .scale { gap: 5px; }
+            .scale-button { min-height: 66px; border-radius: 12px; }
+            .scale-label { font-size: 0.61rem; }
+        }
+
+        @media (prefers-reduced-motion: no-preference) {
+            .scale-button { transition: transform 120ms ease, border-color 120ms ease, background 120ms ease; }
+        }
+    </style>
+</head>
+<body>
+<main class="shell">
+    <header class="topline">
+        <p class="brand">Whatte</p>
+        <p class="date">{{ today }}</p>
+    </header>
+
+    <div class="stack">
+        <section class="card hero" aria-labelledby="readiness-title">
+            <p class="eyebrow" id="readiness-title">Today’s readiness</p>
+            {% if readiness %}
+            <div class="readiness-row">
+                <p class="score">{{ readiness.readiness_score | round | int }}</p>
+                <div class="score-copy">
+                    <p class="status">{{ readiness.status_text }}</p>
+                    <p class="recommendation">{{ readiness.recommendation | replace('_', ' ') }}</p>
+                </div>
+            </div>
+            <p class="briefing">{{ readiness.briefing_text or readiness.reason }}</p>
+            <div class="freshness">
+                <span>Data <strong>{{ readiness.freshness_state }}</strong></span>
+                <span>Readiness date <strong>{{ readiness.date }}</strong></span>
+                <span>Computed <strong>{{ readiness.readiness_computed_at or "—" }}</strong></span>
+            </div>
+            {% elif readiness_section.status == "error" %}
+            <p class="error">Readiness could not be loaded. {{ readiness_section.error }}</p>
+            {% else %}
+            <p class="empty">No readiness has been calculated yet. The recommendation will appear when backend state is available.</p>
+            {% endif %}
+        </section>
+
+        <section class="card" aria-labelledby="recovery-title">
+            <div class="section-head">
+                <div>
+                    <h2 id="recovery-title">How do you feel today?</h2>
+                    <p class="hint">One tap. You can change the answer later.</p>
+                </div>
+                {% if recovery %}<span class="badge badge-used">Saved</span>{% endif %}
+            </div>
+            {% if saved == "recovery" %}<p class="saved" role="status">Recovery updated. Today’s readiness was recalculated.</p>{% endif %}
+            {% if recovery_section.status == "error" %}
+            <p class="error">Recovery feedback is temporarily unavailable. {{ recovery_section.error }}</p>
+            {% else %}
+            <div class="scale" aria-label="Recovery score from one to five">
+                {% set recovery_options = [(1, '😴', 'Exhausted'), (2, '😐', 'Tired'), (3, '🙂', 'Okay'), (4, '⚡', 'Fresh'), (5, '🚀', 'Very fresh')] %}
+                {% for score, emoji, label in recovery_options %}
+                <form method="post" action="/today/recovery/{{ score }}">
+                    <button class="scale-button" type="submit" aria-label="Recovery: {{ label }}" aria-pressed="{{ 'true' if recovery and recovery.score == score else 'false' }}">
+                        <span class="emoji" aria-hidden="true">{{ emoji }}</span>
+                        <span class="scale-label">{{ label }}</span>
+                    </button>
+                </form>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="card" aria-labelledby="rpe-title">
+            <div class="section-head">
+                <div>
+                    <h2 id="rpe-title">How did the workout feel?</h2>
+                    <p class="hint">Latest eligible activity, prioritising one without RPE.</p>
+                </div>
+                {% if activity and activity.rpe_score %}<span class="badge badge-used">RPE {{ activity.rpe_score }}</span>{% endif %}
+            </div>
+            {% if saved == "rpe" %}<p class="saved" role="status">RPE updated.</p>{% endif %}
+            {% if activity_section.status == "error" %}
+            <p class="error">Activity feedback is temporarily unavailable. {{ activity_section.error }}</p>
+            {% elif activity %}
+            <p class="activity-name">{{ activity.name }}</p>
+            <ul class="activity-meta" aria-label="Activity details">
+                <li>{{ activity.sport_type }}</li>
+                <li>{{ activity.start_time }}</li>
+                <li>{{ activity.duration }}</li>
+                <li>{{ activity.distance }}</li>
+            </ul>
+            <div class="scale" aria-label="Perceived exertion from one to five">
+                {% set rpe_options = [(1, '😌', 'Very easy'), (2, '🙂', 'Easy'), (3, '😐', 'Moderate'), (4, '🥵', 'Hard'), (5, '☠️', 'Very hard')] %}
+                {% for score, emoji, label in rpe_options %}
+                <form method="post" action="/today/rpe/{{ activity.activity_id }}/{{ score }}">
+                    <button class="scale-button" type="submit" aria-label="RPE: {{ label }}" aria-pressed="{{ 'true' if activity.rpe_score == score else 'false' }}">
+                        <span class="emoji" aria-hidden="true">{{ emoji }}</span>
+                        <span class="scale-label">{{ label }}</span>
+                    </button>
+                </form>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty">No eligible activity needs feedback right now.</p>
+            {% endif %}
+        </section>
+
+        <section class="card" aria-labelledby="factors-title">
+            <div class="section-head">
+                <div>
+                    <h2 id="factors-title">What shaped today</h2>
+                    <p class="hint">Availability and contribution come directly from the backend model.</p>
+                </div>
+            </div>
+            {% if factors %}
+            <div class="factors">
+                {% for factor in factors %}
+                <div class="factor">
+                    <span class="factor-name">{{ factor.label }}</span>
+                    <span class="factor-score">{{ factor.score | round(1) if factor.score is not none else "—" }}</span>
+                    <span class="badge {{ 'badge-used' if factor.used else '' }}">{{ 'used' if factor.used else factor.availability }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty">Explanation factors will appear with readiness.</p>
+            {% endif %}
+        </section>
+    </div>
+</main>
+</body>
+</html>

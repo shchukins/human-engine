@@ -343,6 +343,7 @@ section remain readable and are classified as `missing`.
 
 - Telegram callback после activity notification
 - Telegram callback после next-day recovery prompt
+- Web Today one-tap recovery and RPE forms
 
 Ключевые поля:
 
@@ -363,6 +364,11 @@ Feedback types:
 
 - `post_ride_rpe`
 - `next_day_recovery`
+
+Active sources:
+
+- `telegram`
+- `web`
 
 Архитектурные слои внутри row:
 

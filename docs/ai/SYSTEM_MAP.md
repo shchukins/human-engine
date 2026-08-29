@@ -168,6 +168,19 @@ Status: `partial`
 - readiness briefing exists as deterministic text formatting
 - broader multi-surface morning briefing orchestration is still incomplete
 
+### Web Today interaction surface
+
+Status: `implemented`
+
+- `/today` is a mobile-friendly FastAPI/Jinja2 surface protected at the Caddy edge
+- it reads backend-owned readiness, recommendation, explanation availability,
+  and freshness state
+- it reuses idempotent subjective-feedback persistence for morning recovery and
+  latest-activity RPE
+- recovery submission triggers backend readiness recomputation; frontend code
+  contains no readiness or recommendation formula
+- missing physiology is rendered as unavailable rather than as an error
+
 ### Observability
 
 Status: `implemented`

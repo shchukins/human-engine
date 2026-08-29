@@ -11,19 +11,24 @@ Current routing model:
 
 - `shchukin.de` is the main web domain for user/admin web surfaces.
 - `shchukin.de/dashboard` is the current internal dashboard path.
+- `shchukin.de/today` is the mobile-friendly daily readiness and feedback path.
 - `api.shchukin.de` remains the technical API domain.
 - both public surfaces proxy to the local backend upstream at `127.0.0.1:8000`
 
 Current public split:
 
 - `shchukin.de/dashboard` -> FastAPI SSR internal dashboard
+- `shchukin.de/today` -> FastAPI SSR Today surface
 - `api.shchukin.de` -> FastAPI technical API endpoints, Strava OAuth callback, Telegram webhook, HealthKit sync, `/healthz`, and API docs when enabled
 
 Operational notes:
 
 - Caddy owns TLS termination and reverse proxying on the edge host.
 - The dashboard is rendered by FastAPI via Jinja2 templates; Caddy only routes the request.
-- The dashboard is protected with `Caddy` Basic Auth on `/dashboard`.
+- The dashboard and Today surface are protected with `Caddy` Basic Auth on
+  `/dashboard` and `/today`.
+- UI routes are not exposed through `api.shchukin.de`; that host returns `404`
+  for `/dashboard*` and `/today*`.
 - A later option is Google OAuth restricted to a single allowed user email.
 - The backend production runtime is on the VPS; `api.shchukin.de` remains the API surface and `shchukin.de/dashboard` is the internal monitoring surface.
 - Old home-server watchdog / cron monitoring is legacy and should not be treated as primary production monitoring after the VPS move.

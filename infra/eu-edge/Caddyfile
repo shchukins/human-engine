@@ -1,5 +1,7 @@
 shchukin.de {
-	handle /dashboard* {
+	@private_surfaces path /dashboard* /today*
+
+	handle @private_surfaces {
 		basicauth {
 			sergey $2a$14$3hRHbJgbDkKV9CpenAdFxeL3DpikaFxXR8.fJib8EGZAPZWR8LMsG
 		}
@@ -12,5 +14,15 @@ shchukin.de {
 	}
 }
 api.shchukin.de {
-	reverse_proxy http://127.0.0.1:8000
+	handle /today* {
+		respond 404
+	}
+
+	handle /dashboard* {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy http://127.0.0.1:8000
+	}
 }

@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 FEEDBACK_TYPE_POST_RIDE_RPE = "post_ride_rpe"
 FEEDBACK_TYPE_NEXT_DAY_RECOVERY = "next_day_recovery"
 FEEDBACK_SOURCE_TELEGRAM = "telegram"
+FEEDBACK_SOURCE_WEB = "web"
 FEEDBACK_SCHEMA_VERSION_EXTENSIBLE = "v1_extensible"
 PROMPT_TYPE_NEXT_DAY_RECOVERY = "next_day_recovery"
 PROMPT_SOURCE_SCHEDULER = "scheduler"

@@ -254,6 +254,33 @@ Operational role:
 - Telegram alerts and the old home-server watchdog are legacy/secondary and should not be developed as the main monitoring channel right now
 - dashboard is not a full alerting system; it is a read-only status and pipeline inspection surface
 
+## Web Today surface
+
+The mobile-friendly daily interaction surface is implemented as backend-owned
+server-rendered HTML.
+
+- route: `/today`
+- public path: `https://shchukin.de/today`
+- current user: configured by `DAILY_READINESS_USER_ID`
+- rendering: FastAPI + Jinja2, without a frontend framework or build step
+- access: Caddy Basic Auth on `shchukin.de`; UI routes return `404` on the API domain
+
+The surface reads the current-version readiness response and displays its
+backend-owned recommendation, briefing, signal-family availability, and source
+freshness. Missing physiology remains `unavailable`; the web layer does not
+convert missing data into a score and does not duplicate readiness logic.
+
+The two write paths reuse the existing subjective-feedback services:
+
+- today's `next_day_recovery` on the 1-5 scale; an idempotent upsert is followed
+  by deterministic readiness recomputation for the same date;
+- `post_ride_rpe` for the latest eligible canonical activity, prioritising an
+  activity without RPE and preserving an explicitly selected activity for edit.
+
+Both feedback types use `source=web`. Repeated submissions update the existing
+natural-key row rather than creating duplicates. Native forms validate scores
+server-side, reject cross-site submissions, and use POST/redirect/GET.
+
 ## HealthKit full sync pipeline
 
 Текущий orchestration pipeline:

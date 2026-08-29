@@ -13,7 +13,7 @@ Current scope:
 
 - post-ride RPE feedback
 - next-day recovery feedback
-- Telegram-based low-friction collection
+- Telegram- and Web Today-based low-friction collection
 - automatic scheduled next-day recovery prompt orchestration
 - normalized queryable fields plus extensible payloads
 - historical context snapshots for later calibration work
@@ -86,6 +86,9 @@ Telegram labels:
 - `🥵 Hard`
 - `☠️ Very hard`
 
+Web Today uses the same canonical score/value mapping and labels. Its native
+form route is transport-specific; stored feedback semantics are unchanged.
+
 Callback format:
 
 - `rpe:{activity_id}:{score}`
@@ -119,6 +122,9 @@ Telegram labels:
 - `⚡ Fresh`
 - `🚀 Very fresh`
 
+Web Today uses the same canonical score/value mapping and triggers the same
+backend readiness recomputation after the idempotent date-level upsert.
+
 Callback format:
 
 - `recovery:{user_id}:{target_date}:{score}`
@@ -146,6 +152,11 @@ Core fields:
 - `feedback_value`
 - `feedback_score`
 - `source`
+
+Active feedback sources:
+
+- `telegram` for Telegram callback collection
+- `web` for authenticated Web Today native forms
 
 Extensible fields:
 
