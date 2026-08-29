@@ -187,7 +187,7 @@ class _ActivityConn:
         return self._cursor
 
 
-def test_today_activity_query_prioritises_missing_rpe_and_scopes_user(monkeypatch):
+def test_today_activity_query_selects_latest_and_scopes_user(monkeypatch):
     cursor = _ActivityCursor(
         (
             17855535922,
@@ -209,7 +209,8 @@ def test_today_activity_query_prioritises_missing_rpe_and_scopes_user(monkeypatc
     assert result.distance == "42.5 km"
     assert cursor.params == ("post_ride_rpe", "sergey")
     assert "where r.user_id = %s" in cursor.query
-    assert "case when f.feedback_score is null then 0 else 1 end" in cursor.query
+    assert "order by r.start_date desc nulls last" in cursor.query
+    assert "case when f.feedback_score is null" not in cursor.query
     assert "r.duplicate_of_activity_id is null" in cursor.query
 
 
@@ -241,6 +242,8 @@ def test_today_page_renders_mobile_working_surface(monkeypatch):
     assert "unavailable" in response.text
     assert "/today/recovery/4" in response.text
     assert "/today/rpe/17855535922/5" in response.text
+    assert 'formmethod="post"' in response.text
+    assert "X-Requested-With" in response.text
 
 
 def test_today_recovery_submission_uses_web_source_and_redirects(monkeypatch):

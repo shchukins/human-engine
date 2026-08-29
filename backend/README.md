@@ -274,8 +274,8 @@ The two write paths reuse the existing subjective-feedback services:
 
 - today's `next_day_recovery` on the 1-5 scale; an idempotent upsert is followed
   by deterministic readiness recomputation for the same date;
-- `post_ride_rpe` for the latest eligible canonical activity, prioritising an
-  activity without RPE and preserving an explicitly selected activity for edit.
+- `post_ride_rpe` for the latest eligible canonical activity, displaying its
+  existing RPE when present and preserving an explicitly selected activity for edit.
 
 Both feedback types use `source=web`. Repeated submissions update the existing
 natural-key row rather than creating duplicates. Native forms validate scores

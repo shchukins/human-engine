@@ -188,7 +188,6 @@ def get_today_activity(
                   and r.duplicate_of_activity_id is null
                   {preferred_filter}
                 order by
-                    case when f.feedback_score is null then 0 else 1 end,
                     r.start_date desc nulls last,
                     r.strava_activity_id desc
                 limit 1;

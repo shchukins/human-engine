@@ -31,10 +31,9 @@ The server builds one Today view from existing backend state:
 - latest current-version `readiness_daily` response, including deterministic
   recommendation, briefing, signal families, data quality, and freshness;
 - today's date-level `next_day_recovery` feedback when present;
-- the most recent canonical, non-deleted, non-excluded activity missing
-  `post_ride_rpe`;
-- when no activity is missing RPE, the latest eligible activity and its current
-  RPE remain available for editing.
+- the most recent canonical, non-deleted, non-excluded activity and its current
+  `post_ride_rpe` when present, so stale historical gaps never displace the
+  latest workout and existing RPE remains editable.
 
 Missing physiology is rendered from the existing signal-family availability
 contract as unavailable. It is not converted into a score or an error.

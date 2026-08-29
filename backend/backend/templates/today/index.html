@@ -215,6 +215,11 @@
             color: #10150e;
         }
 
+        .scale-button:disabled {
+            cursor: wait;
+            opacity: 0.65;
+        }
+
         .emoji {
             display: block;
             margin-bottom: 4px;
@@ -367,8 +372,8 @@
             <div class="scale" aria-label="Recovery score from one to five">
                 {% set recovery_options = [(1, '😴', 'Exhausted'), (2, '😐', 'Tired'), (3, '🙂', 'Okay'), (4, '⚡', 'Fresh'), (5, '🚀', 'Very fresh')] %}
                 {% for score, emoji, label in recovery_options %}
-                <form method="post" action="/today/recovery/{{ score }}">
-                    <button class="scale-button" type="submit" aria-label="Recovery: {{ label }}" aria-pressed="{{ 'true' if recovery and recovery.score == score else 'false' }}">
+                <form method="post" action="/today/recovery/{{ score }}" data-feedback-form>
+                    <button class="scale-button" type="submit" formmethod="post" formaction="/today/recovery/{{ score }}" aria-label="Recovery: {{ label }}" aria-pressed="{{ 'true' if recovery and recovery.score == score else 'false' }}">
                         <span class="emoji" aria-hidden="true">{{ emoji }}</span>
                         <span class="scale-label">{{ label }}</span>
                     </button>
@@ -382,7 +387,7 @@
             <div class="section-head">
                 <div>
                     <h2 id="rpe-title">How did the workout feel?</h2>
-                    <p class="hint">Latest eligible activity, prioritising one without RPE.</p>
+                    <p class="hint">Your latest eligible activity. You can update its RPE.</p>
                 </div>
                 {% if activity and activity.rpe_score %}<span class="badge badge-used">RPE {{ activity.rpe_score }}</span>{% endif %}
             </div>
@@ -400,8 +405,8 @@
             <div class="scale" aria-label="Perceived exertion from one to five">
                 {% set rpe_options = [(1, '😌', 'Very easy'), (2, '🙂', 'Easy'), (3, '😐', 'Moderate'), (4, '🥵', 'Hard'), (5, '☠️', 'Very hard')] %}
                 {% for score, emoji, label in rpe_options %}
-                <form method="post" action="/today/rpe/{{ activity.activity_id }}/{{ score }}">
-                    <button class="scale-button" type="submit" aria-label="RPE: {{ label }}" aria-pressed="{{ 'true' if activity.rpe_score == score else 'false' }}">
+                <form method="post" action="/today/rpe/{{ activity.activity_id }}/{{ score }}" data-feedback-form>
+                    <button class="scale-button" type="submit" formmethod="post" formaction="/today/rpe/{{ activity.activity_id }}/{{ score }}" aria-label="RPE: {{ label }}" aria-pressed="{{ 'true' if activity.rpe_score == score else 'false' }}">
                         <span class="emoji" aria-hidden="true">{{ emoji }}</span>
                         <span class="scale-label">{{ label }}</span>
                     </button>
@@ -436,5 +441,28 @@
         </section>
     </div>
 </main>
+<script>
+    document.addEventListener("submit", async (event) => {
+        const form = event.target.closest("[data-feedback-form]");
+        if (!form || !window.fetch) return;
+
+        event.preventDefault();
+        const submitter = event.submitter;
+        if (submitter) submitter.disabled = true;
+
+        try {
+            const response = await fetch(form.action, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {"X-Requested-With": "Whatte-Today"},
+            });
+            if (!response.ok) throw new Error(`feedback request failed: ${response.status}`);
+            window.location.assign(response.url);
+        } catch (error) {
+            if (submitter) submitter.disabled = false;
+            HTMLFormElement.prototype.submit.call(form);
+        }
+    });
+</script>
 </body>
 </html>
