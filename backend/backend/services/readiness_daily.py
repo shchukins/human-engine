@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from backend.core.logging import log_event
 from backend.db import get_conn
+from backend.services.activity_response_service import load_recent_response_context
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
 from backend.services.readiness_composition import (
     READINESS_MODEL_VERSION,
@@ -103,6 +104,11 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     (user_id, target_date),
                 )
                 feeling_row = cur.fetchone()
+                response_context = load_recent_response_context(
+                    cur,
+                    user_id=user_id,
+                    target_date=target_date,
+                )
 
                 load_context = (
                     {
@@ -139,6 +145,7 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     feeling_score=feeling_score,
                     physiology_score=recovery_score_simple,
                     physiology_explanation=recovery_explanation,
+                    response_context=response_context,
                 )
                 signal_families = composition["signal_families"]
                 fallback_mode = _detect_fallback_mode(signal_families)

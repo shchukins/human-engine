@@ -80,7 +80,7 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
     "version": "v2_signal_composition",
     "formula_version": "signal_weighted_v1"
   },
-  "reason_codes": ["response_metrics_not_materialized"],
+  "reason_codes": ["response_context_only_phase_1"],
   "signal_families": {
     "freshness": {
       "availability": "available",

@@ -283,7 +283,9 @@ readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
 ```
 
 `freshness` has configured weight `0.6`; available `feeling` and `physiology`
-share the `0.4` evidence budget. `response` is explicitly unavailable until #118.
+share the `0.4` evidence budget. Versioned response metrics are materialized in
+`activity_response_metrics` and exposed in `response` as context-only; they do
+not yet alter the score.
 Current writes use version `v2_signal_composition`; legacy `v2` rows remain stored.
 
 ### GoodDayProbability

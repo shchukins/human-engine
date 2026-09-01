@@ -95,7 +95,8 @@ load + freshness + response + feeling + optional physiology
 - `load` — доступный контекст load state; отдельно не взвешивается, чтобы не
   учитывать одну нагрузку дважды
 - `freshness` — readiness-bearing summary load state
-- `response` — зарезервирован для versioned metrics из #118; пока unavailable
+- `response` — latest versioned activity-response context за семь дней;
+  в phase 1 доступен как `used=false` без score/contribution
 - `feeling` — утренняя субъективная recovery-оценка 1-5
 - `physiology` — optional `recovery_score_simple` из `health_recovery_daily`
 

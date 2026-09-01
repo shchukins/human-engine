@@ -10,6 +10,7 @@ from backend.services.activity_deduplication_service import (
     recompute_after_activity_state_change,
 )
 from backend.services.activity_load_service import resolve_activity_load
+from backend.services.activity_response_service import compute_and_store_activity_response
 from backend.services.metrics_service import (
     compute_deltas,
     compute_hr_zones,
@@ -512,6 +513,10 @@ def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -
     )
 
     deduplication_result = detect_and_apply_duplicate(activity_id)
+    canonical_activity_id = (
+        deduplication_result.get("canonical_activity_id") or activity_id
+    )
+    response_result = compute_and_store_activity_response(canonical_activity_id)
     start_date = activity.get("start_date")
     affected_date = (
         datetime.fromisoformat(start_date.replace("Z", "+00:00")).date()
@@ -535,6 +540,7 @@ def process_activity_pipeline(user_id: str, athlete_id: int, activity_id: int) -
         "load_source": load_info["load_source"],
         "load_model_included": load_info["load_model_included"],
         "deduplication": deduplication_result,
+        "response_metrics": response_result,
         "load_days_processed": load_result["days_processed"],
         "fitness_days_processed": fitness_result["days_processed"],
         "last_freshness_signal": fitness_result["last_freshness_signal"],

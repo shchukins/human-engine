@@ -104,6 +104,15 @@ Recovery не заменяет fatigue, а корректирует readiness п
 - Fatigue Total: взвешенная смесь fast и slow fatigue
 - Freshness: `fitness - fatigue_total`
 
+### Training Response
+
+Versioned activity-level description of how much a completed workout cost the
+athlete, materialized in `activity_response_metrics`.
+
+Phase 1 combines objective activity metrics with optional RPE, exposes explicit
+availability and comparable-session median baselines, and does not create a
+synthetic aggregate response score. It is independent of HealthKit.
+
 ---
 
 ## 3. Decision layer

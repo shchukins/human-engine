@@ -39,6 +39,7 @@ Whatte:
 - HealthKit ingestion through the iOS client
 - raw data preservation and normalized health data
 - daily load and recovery models
+- versioned training-response metrics and personal comparable-session baselines
 - explainable daily readiness
 - deterministic recommendation categories: `recovery`, `endurance`, `moderate`, and `high_intensity`
 - compact briefing output for API, Telegram, and iOS-friendly surfaces
@@ -78,7 +79,7 @@ daily briefing
 
 ## Current status
 
-Whatte is an active prototype. The end-to-end backend pipeline is working: Strava and HealthKit data feed normalized health data, daily load, recovery, readiness, deterministic recommendation categories, and briefing output.
+Whatte is an active prototype. The end-to-end backend pipeline is working: Strava and HealthKit data feed normalized health data, activity response, daily load, recovery, readiness, deterministic recommendation categories, and briefing output.
 
 The current recommendation layer is deliberately narrow. It supports daily decision-making, but it is not yet a full training planner.
 
@@ -94,6 +95,7 @@ The dashboard shows local backend and database state for System, Connection, Ing
 
 - [Architecture](docs/architecture/ARCHITECTURE.md)
 - [Readiness model](docs/models/READINESS_MODEL.md)
+- [Training response](docs/models/TRAINING_RESPONSE.md)
 - [Current state](docs/product/CURRENT_STATE.md)
 - [Product scenarios](docs/product/SCENARIOS.md)
 - [Backend](backend/README.md)

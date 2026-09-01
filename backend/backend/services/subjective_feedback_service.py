@@ -20,6 +20,10 @@ from backend.services.activity_deduplication_service import (
     restore_manual_exclusion,
     set_manual_exclusion,
 )
+from backend.services.activity_response_service import (
+    compute_and_store_activity_response,
+    recompute_readiness_for_response_window,
+)
 from backend.services.decision_engine import build_recommendation
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
@@ -954,7 +958,7 @@ def upsert_activity_subjective_feedback(
         }
     )
 
-    return upsert_subjective_feedback(
+    result = upsert_subjective_feedback(
         user_id=user_id,
         activity_id=activity_id,
         canonical_activity_id=canonical_activity_id,
@@ -967,6 +971,19 @@ def upsert_activity_subjective_feedback(
         context=build_feedback_context_snapshot(user_id),
         feedback_schema_version=feedback_schema_version,
     )
+    # RPE is an input to the deterministic response layer. Recompute only
+    # after the idempotent feedback write commits so readers never observe a
+    # response row that references feedback which was not persisted.
+    result["response_metrics"] = compute_and_store_activity_response(
+        canonical_activity_id
+    )
+    response_date = result["response_metrics"].get("activity_date")
+    if response_date is not None:
+        result["response_readiness_dates"] = recompute_readiness_for_response_window(
+            user_id=user_id,
+            activity_date=response_date,
+        )
+    return result
 
 
 def upsert_next_day_recovery_feedback(

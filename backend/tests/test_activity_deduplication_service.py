@@ -220,6 +220,11 @@ def test_old_garmin_rpe_callback_is_stored_against_canonical(monkeypatch):
         "upsert_subjective_feedback",
         lambda **kwargs: captured.update(kwargs) or kwargs,
     )
+    monkeypatch.setattr(
+        feedback,
+        "compute_and_store_activity_response",
+        lambda activity_id: {"ok": True, "activity_id": activity_id},
+    )
 
     feedback.upsert_activity_subjective_feedback(
         activity_id=GARMIN_ID,

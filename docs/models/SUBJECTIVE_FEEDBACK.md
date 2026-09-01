@@ -6,8 +6,8 @@
 
 It captures how training felt and how recovery felt. In
 `v2_signal_composition`, date-level next-day recovery is also an explicit
-current-day `feeling` input; post-ride RPE remains an outcome until #118 adds
-versioned response metrics.
+current-day `feeling` input; post-ride RPE remains an observed outcome consumed
+by the versioned activity-response layer.
 
 Current scope:
 

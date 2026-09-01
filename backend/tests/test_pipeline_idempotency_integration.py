@@ -23,6 +23,10 @@ def _cleanup() -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
+                "delete from activity_response_metrics where strava_activity_id = %s;",
+                (TEST_ACTIVITY_ID,),
+            )
+            cur.execute(
                 "delete from activity_metrics where strava_activity_id = %s;",
                 (TEST_ACTIVITY_ID,),
             )
@@ -211,9 +215,21 @@ def test_process_activity_pipeline_is_idempotent(
                 )
                 metrics_count = cur.fetchone()[0]
 
+                cur.execute(
+                    """
+                    select count(*)
+                    from activity_response_metrics
+                    where strava_activity_id = %s
+                      and version = 'v1';
+                    """,
+                    (TEST_ACTIVITY_ID,),
+                )
+                response_count = cur.fetchone()[0]
+
         assert raw_count == 1
         assert streams_count == 3
         assert metrics_count == 1
+        assert response_count == 1
 
     finally:
         _cleanup()

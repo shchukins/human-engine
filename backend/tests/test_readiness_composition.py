@@ -89,3 +89,39 @@ def test_feeling_scale_is_explicit(raw_score, normalized):
 def test_invalid_feeling_score_is_rejected():
     with pytest.raises(ValueError, match="between 1 and 5"):
         normalize_feeling(6)
+
+
+def test_response_metrics_are_exposed_without_changing_readiness_score():
+    without_response = compose_readiness(
+        load_context={"tss": 70.0},
+        freshness=10.0,
+        feeling_score=4,
+        physiology_score=None,
+        physiology_explanation=None,
+    )
+    response_context = {
+        "activity_id": 42,
+        "version": "v1",
+        "rpe_score": 4,
+        "aerobic_decoupling_pct": 4.2,
+    }
+    with_response = compose_readiness(
+        load_context={"tss": 70.0},
+        freshness=10.0,
+        feeling_score=4,
+        physiology_score=None,
+        physiology_explanation=None,
+        response_context=response_context,
+    )
+
+    assert with_response["readiness_score"] == without_response["readiness_score"]
+    assert with_response["signal_families"]["response"] == {
+        "availability": "available",
+        "used": False,
+        "score": None,
+        "configured_weight": 0.0,
+        "effective_weight": 0.0,
+        "contribution": 0.0,
+        "reason_codes": ["response_context_only_phase_1"],
+        "data": response_context,
+    }

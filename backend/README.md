@@ -163,7 +163,8 @@ FastAPI + PostgreSQL
 - readiness хранится отдельно от `load_state_daily_v2`
 - readiness не равен `freshness`
 - `load` не получает отдельный score поверх `freshness`, чтобы не учитывать одну нагрузку дважды
-- `response` остается unavailable до materialized metrics из #118
+- `response` читает versioned `activity_response_metrics`; в phase 1 он
+  публикуется как context-only (`used=false`) и не меняет readiness score
 - текущий `good_day_probability` является baseline probability-like mapping:
   - `good_day_probability = readiness_score / 100`
   - это не статистически откалиброванная вероятность
@@ -179,7 +180,28 @@ Recovery breakdown внутри `explanation_json.recovery_explanation`:
 - `hrv_dev`
 - `rhr_dev`
 
-### 7. Subjective feedback layer
+### 7. Training response layer
+
+Реализована таблица:
+
+- `activity_response_metrics`
+
+Текущий scope `v1`:
+
+- average / normalized power и average HR
+- power-to-HR relationships
+- aerobic decoupling для явно eligible steady workouts
+- RPE, session-RPE load и отношения RPE к IF/TSS
+- median baseline по предыдущим comparable activities
+- per-metric availability и reason codes
+
+Response пересчитывается после activity pipeline и после idempotent RPE upsert.
+Readiness получает latest seven-day response context, но phase 1 не создает
+synthetic response score и не меняет веса readiness.
+
+Подробный контракт: [`docs/models/TRAINING_RESPONSE.md`](../docs/models/TRAINING_RESPONSE.md).
+
+### 8. Subjective feedback layer
 
 Реализована таблица:
 
@@ -204,8 +226,8 @@ Recovery breakdown внутри `explanation_json.recovery_explanation`:
 Важно:
 
 - это не ML layer
-- post-ride RPE пока хранится как evaluation / calibration dataset и войдет в
-  readiness только через versioned response metrics из #118
+- post-ride RPE остается observed feedback и используется versioned response
+  layer без изменения исходной feedback semantics
 - date-level `next_day_recovery` является явным `feeling` input для
   `v2_signal_composition`; после upsert readiness пересчитывается детерминированно
 

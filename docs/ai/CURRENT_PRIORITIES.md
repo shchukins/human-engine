@@ -147,6 +147,7 @@ RAG рассматривается как:
 - стабилизация `health_recovery_daily`
 - стабилизация `readiness_daily`
 - стабилизация wearable-independent `v2_signal_composition` и его signal-family contract
+- стабилизация versioned `activity_response_metrics` и comparable-session baseline
 - стабилизация deterministic `decision_engine` и briefing contract поверх readiness
 - устранение дублирования recommendation / briefing logic между `decision_engine` и legacy notification formatting
 - readiness / probability calibration как следующий шаг, а не новый black-box слой

@@ -45,7 +45,7 @@ def _readiness(*, physiology_available: bool = False):
                 "used": False,
                 "score": None,
                 "contribution": 0.0,
-                "reason_codes": ["response_metrics_not_materialized"],
+                "reason_codes": ["response_metrics_unavailable"],
             },
             "feeling": {
                 "availability": "available",

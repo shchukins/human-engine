@@ -329,7 +329,37 @@ section remain readable and are classified as `missing`.
 
 ---
 
-### 5.9 `activity_subjective_feedback`
+### 5.9 `activity_response_metrics`
+
+Versioned activity-level training-response layer.
+
+Sources:
+
+- canonical `strava_activity_raw`
+- `activity_metrics` version `v1`
+- raw power / HR / time streams
+- optional canonical `post_ride_rpe`
+
+Key fields:
+
+- `version`
+- `activity_type`, `activity_date`, `duration_s`
+- `intensity_factor`, `intensity_band`
+- `avg_power_w`, `normalized_power_w`, `avg_hr_bpm`
+- `avg_power_to_hr`, `normalized_power_to_hr`
+- `aerobic_decoupling_pct`
+- `rpe_score`, `session_rpe_load`
+- `rpe_per_intensity_factor`, `session_rpe_load_per_tss`
+- `availability_json`, `baseline_json`, `explanation_json`
+
+The natural key is `(strava_activity_id, version)`. Baselines use earlier
+canonical activities of the same activity type and intensity band. Version 1
+stores per-metric medians and deviations but no aggregate response score.
+
+Full formula and eligibility contract:
+[`docs/models/TRAINING_RESPONSE.md`](../models/TRAINING_RESPONSE.md).
+
+### 5.10 `activity_subjective_feedback`
 
 Слой user-reported subjective feedback.
 
@@ -453,7 +483,7 @@ Active sources:
 }
 ```
 
-### 5.10 `notification_log`
+### 5.11 `notification_log`
 
 Delivery-state журнал для at-most-once уведомлений.
 

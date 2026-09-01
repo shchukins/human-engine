@@ -63,12 +63,14 @@ def compose_readiness(
     feeling_score: int | float | None,
     physiology_score: float | None,
     physiology_explanation: dict[str, Any] | None,
+    response_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compose readiness from available signal families without missing-data penalties.
 
     Load is exposed as context while freshness carries its score contribution,
-    preventing the same load state from being counted twice. Response remains a
-    stable unavailable slot until issue #118 provides versioned response metrics.
+    preventing the same load state from being counted twice. Phase-1 response
+    metrics are exposed as context but remain non-scoring until an explicit
+    readiness-bearing response formula is reviewed.
     """
     freshness_score = normalize_freshness(freshness)
     feeling_normalized = normalize_feeling(feeling_score)
@@ -142,13 +144,18 @@ def compose_readiness(
             data={"raw_freshness": freshness},
         ),
         "response": _family(
-            availability="unavailable",
+            availability="available" if response_context is not None else "unavailable",
             used=False,
             score=None,
             configured_weight=0.0,
             effective_weight=0.0,
             contribution=0.0,
-            reason_codes=["response_metrics_not_materialized"],
+            reason_codes=[
+                "response_context_only_phase_1"
+                if response_context is not None
+                else "response_metrics_unavailable"
+            ],
+            data=response_context,
         ),
         "feeling": _family(
             availability="available" if feeling_normalized is not None else "unavailable",

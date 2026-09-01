@@ -1,10 +1,25 @@
 import json
 
 import requests
+import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as app_module
 from backend.services import subjective_feedback_service as feedback_service
+
+
+@pytest.fixture(autouse=True)
+def _stub_response_metrics_recompute(monkeypatch):
+    monkeypatch.setattr(
+        feedback_service,
+        "compute_and_store_activity_response",
+        lambda activity_id: {"ok": True, "activity_id": activity_id},
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "recompute_readiness_for_response_window",
+        lambda **kwargs: [],
+    )
 
 
 class _FakeCursor:
@@ -341,6 +356,53 @@ def test_upsert_activity_subjective_feedback_updates_existing_row(monkeypatch):
     assert result["feedback_score"] == 2
     assert result["feedback_schema_version"] == "v1_extensible"
     assert result["feedback_payload"] == {}
+
+
+def test_rpe_update_recomputes_response_and_affected_readiness_dates(monkeypatch):
+    response_calls = []
+    readiness_calls = []
+    monkeypatch.setattr(
+        feedback_service,
+        "_load_activity_user_id",
+        lambda activity_id: "user-1",
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "resolve_canonical_activity",
+        lambda activity_id: 42,
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "build_feedback_context_snapshot",
+        lambda user_id: {},
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "upsert_subjective_feedback",
+        lambda **kwargs: {"ok": True},
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "compute_and_store_activity_response",
+        lambda activity_id: response_calls.append(activity_id)
+        or {"ok": True, "activity_date": "2026-08-30"},
+    )
+    monkeypatch.setattr(
+        feedback_service,
+        "recompute_readiness_for_response_window",
+        lambda **kwargs: readiness_calls.append(kwargs) or ["2026-08-30"],
+    )
+
+    result = feedback_service.upsert_activity_subjective_feedback(
+        activity_id=99,
+        score=4,
+    )
+
+    assert response_calls == [42]
+    assert readiness_calls == [
+        {"user_id": "user-1", "activity_date": "2026-08-30"}
+    ]
+    assert result["response_readiness_dates"] == ["2026-08-30"]
 
 
 def test_upsert_next_day_recovery_feedback_uses_date_level_uniqueness(monkeypatch):

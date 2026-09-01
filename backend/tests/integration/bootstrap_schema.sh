@@ -26,6 +26,7 @@ psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/health/sql_health_wei
 
 # Derived metrics and daily state tables.
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/analytics/sql_activity_metrics.sql"
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/analytics/sql_activity_response_metrics.sql"
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/analytics/sql_daily_training_load.sql"
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/analytics/sql_daily_fitness_state.sql"
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$REPO_ROOT/sql/health/sql_health_recovery_daily.sql"

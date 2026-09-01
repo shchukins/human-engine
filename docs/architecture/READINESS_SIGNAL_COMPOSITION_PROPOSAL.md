@@ -1,6 +1,7 @@
 # Readiness Signal Composition Proposal
 
-Status: accepted implementation baseline for issue #117, phase 1.
+Status: accepted implementation baseline for issue #117; response metrics
+materialized as context-only in issue #118 phase 1.
 
 ## Goal
 
@@ -30,9 +31,10 @@ load:
 - `feeling` and `physiology` share the existing `0.4` recovery evidence budget.
 - unavailable scored families are omitted and the available configured weights
   are normalized to `1.0`.
-- `response` is present in the contract but remains unavailable until #118
-  materializes versioned response metrics. Raw RPE alone is not treated as a
-  readiness score because its meaning depends on objective session context.
+- `response` reads versioned response metrics from #118 when a recent canonical
+  activity exists. It is available but context-only (`used=false`) in the first
+  response iteration. Raw RPE is not treated as a readiness score because its
+  meaning depends on objective session context.
 
 The 1-5 morning feeling scale maps linearly to `0, 25, 50, 75, 100`. This makes
 the mapping explicit and preserves the neutral midpoint at `50`.
@@ -62,8 +64,9 @@ column.
 
 1. Add and persist the signal-family contract, morning feeling participation,
    current-version read paths, and availability-combination tests.
-2. Implement response metrics and baselines in #118, then make `response`
-   readiness-bearing through an explicit reviewed formula revision.
+2. Implement response metrics and baselines in #118 and expose them as
+   context-only; make `response` readiness-bearing only through a later explicit
+   reviewed formula revision.
 3. Build the web Today surface in #119 exclusively against backend-owned output.
 4. Add the reproducible pilot report in #108 after the loop is operational.
 
