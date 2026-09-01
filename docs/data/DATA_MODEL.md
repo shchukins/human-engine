@@ -300,8 +300,9 @@ Load model v2.
 - `explanation_json`
 - `version`
 
-Current writes use `version = v2_signal_composition`. The `(user_id, date,
-version)` key preserves legacy `v2` rows instead of rewriting them. The
+Current writes use `version = v2_signal_composition_response_v1`. The
+`(user_id, date, version)` key preserves legacy `v2` and
+`v2_signal_composition` rows instead of rewriting them. The
 `explanation_json.signal_families` object stores availability, usage, score,
 effective weight, contribution, reason codes, and family-specific data for
 `load`, `freshness`, `response`, `feeling`, and `physiology`.

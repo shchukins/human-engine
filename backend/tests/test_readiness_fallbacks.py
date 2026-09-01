@@ -180,4 +180,57 @@ def test_recompute_readiness_daily_uses_morning_feeling_without_physiology(monke
     assert result["feeling_score"] == 5
     assert result["signal_families"]["feeling"]["contribution"] == 40.0
     assert explanation_json["signal_families"]["physiology"]["availability"] == "unavailable"
-    assert explanation_json["model"]["version"] == "v2_signal_composition"
+    assert explanation_json["model"]["version"] == readiness_daily.READINESS_MODEL_VERSION
+
+
+def test_recompute_readiness_daily_persists_readiness_bearing_response(monkeypatch):
+    response_context = {
+        "activity_id": 42,
+        "activity_date": "2026-04-15",
+        "version": "v1",
+        "baseline": {
+            "metrics": {
+                "normalized_power_to_hr": {
+                    "current": 0.9,
+                    "median": 1.0,
+                    "deviation_pct": -10.0,
+                    "sample_count": 5,
+                },
+                "aerobic_decoupling_pct": {
+                    "current": 5.0,
+                    "median": 2.0,
+                    "deviation_pct": 150.0,
+                    "sample_count": 5,
+                },
+                "session_rpe_load_per_tss": {
+                    "current": 1.1,
+                    "median": 1.0,
+                    "deviation_pct": 10.0,
+                    "sample_count": 5,
+                },
+            }
+        },
+    }
+    monkeypatch.setattr(
+        readiness_daily,
+        "load_recent_response_context",
+        lambda *args, **kwargs: response_context,
+    )
+
+    result, explanation_json, fake_cursor, _ = _build_result(
+        monkeypatch,
+        load_row=(60.0, 60.0, 50.0, 20.0, 10.0, 18.0, 0.0),
+        recovery_row=(50.0, {"method": "baseline_v2"}),
+    )
+
+    response = result["signal_families"]["response"]
+    assert response["used"] is True
+    assert response["score"] == 27.5
+    assert response["configured_weight"] == 0.2
+    assert result["fallback_mode"] is None
+    assert explanation_json["model"] == {
+        "name": "readiness_signal_composition",
+        "version": readiness_daily.READINESS_MODEL_VERSION,
+        "formula_version": "signal_weighted_response_v1",
+    }
+    assert fake_cursor.insert_params[0][9] == readiness_daily.READINESS_MODEL_VERSION

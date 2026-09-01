@@ -136,7 +136,8 @@ Recommendation
 - current readiness composition работает без обязательной physiology и
   публикует availability/contribution по каждому signal family
 - versioned activity-response metrics materialized из objective activity data
-  и optional RPE; phase 1 публикуется в readiness как context-only
+  и optional RPE; baseline-relative response участвует в readiness при наличии
+  пригодного comparable-session baseline
 - baseline decision / recommendation layer уже реализован как deterministic mapping поверх `readiness_daily`
 - более широкий recommendation / planning layer остается planned
 

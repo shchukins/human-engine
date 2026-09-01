@@ -34,14 +34,16 @@ def _describe_readiness_status(score: float | None) -> str:
 
 
 def _detect_fallback_mode(signal_families: dict[str, Any]) -> str | None:
-    freshness_used = signal_families["freshness"]["used"]
-    feeling_used = signal_families["feeling"]["used"]
-    physiology_used = signal_families["physiology"]["used"]
-    if physiology_used and not freshness_used and not feeling_used:
+    used_families = {
+        family
+        for family in ("freshness", "response", "feeling", "physiology")
+        if signal_families[family]["used"]
+    }
+    if used_families == {"physiology"}:
         return "recovery_only"
-    if freshness_used and not feeling_used and not physiology_used:
+    if used_families == {"freshness"}:
         return "load_only"
-    if feeling_used and not freshness_used and not physiology_used:
+    if used_families == {"feeling"}:
         return "feeling_only"
     return None
 
@@ -146,6 +148,7 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     physiology_score=recovery_score_simple,
                     physiology_explanation=recovery_explanation,
                     response_context=response_context,
+                    target_date=target_date,
                 )
                 signal_families = composition["signal_families"]
                 fallback_mode = _detect_fallback_mode(signal_families)

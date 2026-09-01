@@ -90,13 +90,15 @@ load + freshness + response + feeling + optional physiology
 
 ### 3.4 Readiness signal families
 
-Текущая версия `v2_signal_composition` публикует пять стабильных семейств:
+Текущая версия `v2_signal_composition_response_v1` публикует пять стабильных
+семейств:
 
 - `load` — доступный контекст load state; отдельно не взвешивается, чтобы не
   учитывать одну нагрузку дважды
 - `freshness` — readiness-bearing summary load state
 - `response` — latest versioned activity-response context за семь дней;
-  в phase 1 доступен как `used=false` без score/contribution
+  baseline deviations участвуют в readiness, когда пригоден хотя бы один
+  component
 - `feeling` — утренняя субъективная recovery-оценка 1-5
 - `physiology` — optional `recovery_score_simple` из `health_recovery_daily`
 
@@ -157,14 +159,34 @@ Recovery contour формируется в `health_recovery_daily` из:
 freshness_norm = clamp(50 + freshness, 0, 100)
 ```
 
-`freshness` имеет configured weight `0.6`. Доступные `feeling` и `physiology`
-делят evidence budget `0.4`. Недоступные scored-сигналы исключаются, после чего
-доступные веса нормализуются до `1.0`.
+`freshness` имеет configured weight `0.6`. `response` получает максимум `0.2`
+из evidence budget `0.4`; остаток делят доступные `feeling` и `physiology`.
+Недоступные scored-сигналы исключаются, после чего доступные веса нормализуются
+до `1.0`.
 
 ```text
 feeling_norm = (feeling_score - 1) * 25
+response_recency = clamp(1 - max(age_days - 1, 0) / 6, 0, 1)
+response_configured_weight = 0.2 * response_recency
 readiness_score_raw = sum(available_signal_score * normalized_effective_weight)
 ```
+
+Response score нормализует comparable-session deviations:
+
+```text
+efficiency_score = clamp(50 + 2 * power_hr_deviation_pct, 0, 100)
+subjective_cost_score = clamp(50 - 2 * rpe_cost_deviation_pct, 0, 100)
+drift_score = clamp(50 - 10 * drift_delta_percentage_points, 0, 100)
+```
+
+Objective score сначала усредняет доступные efficiency/drift components.
+Итоговый response score затем усредняет доступные objective и subjective
+channels. Для subjective cost выбирается `session_rpe_load_per_tss`, а
+`rpe_per_intensity_factor` служит fallback; вместе они не учитываются.
+
+Raw RPE, session-RPE load, TSS, duration, absolute power и absolute HR не входят
+в readiness напрямую. `load` по-прежнему имеет weight `0`; load state влияет
+только через `freshness`.
 
 Основные комбинации:
 
@@ -172,10 +194,13 @@ readiness_score_raw = sum(available_signal_score * normalized_effective_weight)
 - freshness + physiology: `0.6 * freshness_norm + 0.4 * physiology`
 - freshness + feeling: `0.6 * freshness_norm + 0.4 * feeling`
 - freshness + feeling + physiology: `0.6 * freshness_norm + 0.2 * feeling + 0.2 * physiology`
+- freshness + fresh response + feeling + physiology:
+  `0.6 * freshness_norm + 0.2 * response + 0.1 * feeling + 0.1 * physiology`
+- freshness + fresh response: configured `0.6 / 0.2`, effective `0.75 / 0.25`
 - если нет ни одного scored-сигнала, backend возвращает `404`
 
 Missing physiology имеет state `unavailable`, contribution `0` и никогда не
-интерпретируется как плохое recovery. Полное обоснование phase 1 зафиксировано в
+интерпретируется как плохое recovery. Полное обоснование composition зафиксировано в
 `docs/architecture/READINESS_SIGNAL_COMPOSITION_PROPOSAL.md`.
 
 ### 4.4 Final outputs
@@ -194,8 +219,9 @@ good_day_probability = readiness_score / 100
 - `status_text`
 - `explanation_json`
 
-Новые вычисления сохраняются с `version = 'v2_signal_composition'`. Legacy rows
-с `version = 'v2'` не перезаписываются.
+Новые вычисления сохраняются с
+`version = 'v2_signal_composition_response_v1'`. Rows версий `v2` и
+`v2_signal_composition` не перезаписываются.
 
 ---
 
@@ -502,8 +528,10 @@ This separation matters because:
 Current state:
 
 - date-level `next_day_recovery` участвует как explicit `feeling` signal в
-  `v2_signal_composition`; исходный context snapshot сохраняет состояние до ответа
-- post-ride RPE пока не меняет readiness и остается calibration input до #118
+  `v2_signal_composition_response_v1`; исходный context snapshot сохраняет
+  состояние до ответа
+- post-ride RPE участвует только через baseline-relative response ratios; raw
+  RPE не является readiness score
 - feedback не запускает скрытую адаптацию весов или thresholds
 - `good_day_probability` still has no statistical calibration
 - the feedback dataset is being accumulated for future validation and calibration work

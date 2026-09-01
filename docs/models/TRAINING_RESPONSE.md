@@ -96,11 +96,30 @@ The latest response row from the preceding seven days is exposed in the stable
 `response` signal family:
 
 - `availability = available`
-- `used = false`
-- `score = null`
-- `effective_weight = 0`
-- `contribution = 0`
-- reason code `response_context_only_phase_1`
+- baseline-backed normalized power / HR, aerobic decoupling, and one normalized
+  RPE-cost metric can produce a readiness-bearing score
+- raw RPE, absolute session-RPE load, TSS, duration, power, and HR are never
+  scored directly
+- insufficient baseline remains explicit context with `used = false`,
+  `score = null`, and reason `response_baseline_insufficient`
+- scoring weight fades after the first day and reaches zero on day seven
 
-Making response readiness-bearing requires a separately reviewed formula and a
-new formula/version contract. Version 1 does not silently alter readiness.
+Readiness model `v2_signal_composition_response_v1` owns the aggregate response
+score and weighting. Activity response rows remain version `v1`; no synthetic
+aggregate is persisted back into `activity_response_metrics`.
+
+### 6.1 Component normalization
+
+```text
+efficiency_score = clamp(50 + 2 * normalized_power_to_hr_deviation_pct, 0, 100)
+subjective_cost_score = clamp(50 - 2 * selected_rpe_cost_deviation_pct, 0, 100)
+drift_score = clamp(50 - 10 * (current_drift - baseline_drift), 0, 100)
+```
+
+`session_rpe_load_per_tss` is preferred for subjective cost;
+`rpe_per_intensity_factor` is its fallback. They are never counted together.
+The two objective components are averaged first, then the available objective
+and subjective channels are averaged. Baseline equality is neutral at `50`.
+
+Drift uses a percentage-point difference rather than relative percentage
+deviation because its baseline may legitimately be zero or negative.

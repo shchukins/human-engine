@@ -34,7 +34,7 @@ POST /api/v1/model/readiness-daily/{user_id}/{date}
 
 ### Notes
 
-- используется текущая версия `v2_signal_composition`
+- используется текущая версия `v2_signal_composition_response_v1`
 - readiness сохраняется в `readiness_daily`
 - fallback mode отражает, какой контур был доступен при расчете
 
@@ -61,8 +61,8 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
   "ok": true,
   "user_id": "sergey",
   "date": "2026-04-26",
-  "readiness_score": 55.7,
-  "good_day_probability": 0.557,
+  "readiness_score": 53.0,
+  "good_day_probability": 0.53,
   "status_text": "Нормальная готовность",
   "freshness_state": "fresh",
   "freshness_reason_codes": [],
@@ -77,25 +77,49 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
   },
   "model": {
     "name": "readiness_signal_composition",
-    "version": "v2_signal_composition",
-    "formula_version": "signal_weighted_v1"
+    "version": "v2_signal_composition_response_v1",
+    "formula_version": "signal_weighted_response_v1"
   },
-  "reason_codes": ["response_context_only_phase_1"],
+  "reason_codes": [],
   "signal_families": {
     "freshness": {
       "availability": "available",
       "used": true,
       "score": 54.0,
+      "configured_weight": 0.6,
       "effective_weight": 0.6,
       "contribution": 32.4,
       "reason_codes": []
+    },
+    "response": {
+      "availability": "available",
+      "used": true,
+      "score": 45.0,
+      "configured_weight": 0.2,
+      "effective_weight": 0.2,
+      "contribution": 9.0,
+      "reason_codes": [],
+      "data": {
+        "activity_id": 123,
+        "version": "v1",
+        "scoring": {
+          "age_days": 1,
+          "recency": 1.0,
+          "channels": {
+            "objective": 50.0,
+            "subjective": 40.0
+          },
+          "selected_subjective_metric": "session_rpe_load_per_tss"
+        }
+      }
     },
     "physiology": {
       "availability": "available",
       "used": true,
       "score": 58.2,
-      "effective_weight": 0.4,
-      "contribution": 23.28,
+      "configured_weight": 0.2,
+      "effective_weight": 0.2,
+      "contribution": 11.64,
       "reason_codes": []
     }
   },
@@ -105,7 +129,7 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
     "freshness_norm": 54.0,
     "recovery_score_simple": 58.2,
     "feeling_score": null,
-    "formula": "signal_weighted_v1",
+    "formula": "signal_weighted_response_v1",
     "recovery_explanation": {
       "sleep_score": 82.8,
       "hrv_score": 42.1,
@@ -113,7 +137,7 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
     }
   },
   "recommendation": "endurance",
-  "reason": "Readiness score is 55.7/100. Freshness is available at 54/100. Recovery is available at 58.2/100. Recommendation is endurance.",
+  "reason": "Readiness score is 53/100. Freshness is available at 54/100. Recovery is available at 58.2/100. Recommendation is endurance.",
   "briefing": "Сегодня нормальная готовность. Рекомендуется спокойная аэробная тренировка.",
   "briefing_text": "Сегодня нормальная готовность. Рекомендуется спокойная аэробная тренировка."
 }
@@ -137,7 +161,9 @@ GET /api/v1/model/readiness-daily/{user_id}/{date}
 ### Notes
 
 - source of truth is `readiness_daily`
-- GET endpoints select `version = v2_signal_composition`; legacy `v2` rows remain stored but are not silently substituted
+- GET endpoints select `version = v2_signal_composition_response_v1`; legacy
+  `v2` and `v2_signal_composition` rows remain stored but are not silently
+  substituted
 - `recommendation`, `reason` and `briefing` are derived by deterministic decision logic
 - `data_quality` shows which input families were actually available; it is not a confidence score
 - current MVP returns `training = ok|missing`; `partial` is reserved for future unsupported/continuity-only load detection
@@ -164,7 +190,8 @@ GET /api/v1/model/readiness-daily/{user_id}/latest
 ### Behavior
 
 - читает `readiness_daily`
-- фильтрует по `user_id` и `version = 'v2_signal_composition'`
+- фильтрует по `user_id` и
+  `version = 'v2_signal_composition_response_v1'`
 - выбирает `order by date desc limit 1`
 - возвращает тот же response shape, что и date-specific GET endpoint
 

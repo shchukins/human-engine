@@ -184,7 +184,62 @@ def test_get_latest_readiness_daily_returns_newest_row_with_guidance(monkeypatch
     assert "order by date desc" in query
     assert "limit 1" in query
     assert "date = %s" not in query
-    assert params == ("sergey", "v2_signal_composition")
+    assert params == ("sergey", readiness_query.READINESS_MODEL_VERSION)
+
+
+def test_get_readiness_exposes_response_scoring_contract(monkeypatch):
+    response_family = {
+        "availability": "available",
+        "used": True,
+        "score": 35.0,
+        "configured_weight": 0.2,
+        "effective_weight": 0.2,
+        "contribution": 7.0,
+        "reason_codes": [],
+        "data": {
+            "activity_id": 42,
+            "scoring": {
+                "age_days": 1,
+                "recency": 1.0,
+                "channels": {"objective": 40.0, "subjective": 30.0},
+            },
+        },
+    }
+    explanation = {
+        "fallback_mode": None,
+        "freshness_norm": 55.0,
+        "model": {
+            "name": "readiness_signal_composition",
+            "version": readiness_query.READINESS_MODEL_VERSION,
+            "formula_version": "signal_weighted_response_v1",
+        },
+        "signal_families": {"response": response_family},
+        "reason_codes": [],
+        "source_timestamps": {
+            "training_source_at": "2026-09-01",
+            "recovery_source_at": None,
+            "timezone": "UTC",
+        },
+    }
+    row = (
+        "sergey",
+        date(2026, 9, 1),
+        51.0,
+        0.51,
+        "Нормальная готовность",
+        explanation,
+        datetime(2026, 9, 1, 5, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(readiness_query, "get_conn", lambda: _FakeConn(row))
+
+    result = readiness_query.get_readiness_daily_for_date(
+        user_id="sergey",
+        target_date="2026-09-01",
+    )
+
+    assert result["model"]["version"] == readiness_query.READINESS_MODEL_VERSION
+    assert result["model"]["formula_version"] == "signal_weighted_response_v1"
+    assert result["signal_families"]["response"] == response_family
 
 
 def test_date_specific_legacy_row_degrades_to_missing(monkeypatch):

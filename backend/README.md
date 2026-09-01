@@ -145,14 +145,14 @@ FastAPI + PostgreSQL
 
 - `readiness_daily`
 
-Текущий readiness baseline (`v2_signal_composition`):
+Текущий readiness baseline (`v2_signal_composition_response_v1`):
 
 - публикует независимые семейства `load`, `freshness`, `response`, `feeling`, `physiology`
 - работает от `freshness` без обязательного HealthKit
 - использует date-level `next_day_recovery` как optional first-class `feeling`
 - использует `recovery_score_simple` как optional `physiology`
 - нормализует веса только по доступным scored-семействам; missing physiology не штрафует score
-- сохраняет legacy `v2` rows отдельно и пишет новые rows с version `v2_signal_composition`
+- сохраняет legacy `v2` и `v2_signal_composition` rows отдельно
 - сохраняет `readiness_score`
 - сохраняет `good_day_probability`
 - сохраняет `status_text`
@@ -163,8 +163,11 @@ FastAPI + PostgreSQL
 - readiness хранится отдельно от `load_state_daily_v2`
 - readiness не равен `freshness`
 - `load` не получает отдельный score поверх `freshness`, чтобы не учитывать одну нагрузку дважды
-- `response` читает versioned `activity_response_metrics`; в phase 1 он
-  публикуется как context-only (`used=false`) и не меняет readiness score
+- `response` читает versioned `activity_response_metrics` и использует только
+  comparable-session baseline deviations; без пригодного baseline остается
+  context-only и не меняет readiness score
+- response имеет maximum configured weight `0.2`, который уменьшается с
+  возрастом activity; raw load/RPE не учитываются напрямую
 - текущий `good_day_probability` является baseline probability-like mapping:
   - `good_day_probability = readiness_score / 100`
   - это не статистически откалиброванная вероятность
@@ -196,8 +199,9 @@ Recovery breakdown внутри `explanation_json.recovery_explanation`:
 - per-metric availability и reason codes
 
 Response пересчитывается после activity pipeline и после idempotent RPE upsert.
-Readiness получает latest seven-day response context, но phase 1 не создает
-synthetic response score и не меняет веса readiness.
+Readiness получает latest seven-day response context и строит aggregate score
+внутри readiness formula. `activity_response_metrics v1` по-прежнему не хранит
+synthetic aggregate response score.
 
 Подробный контракт: [`docs/models/TRAINING_RESPONSE.md`](../docs/models/TRAINING_RESPONSE.md).
 
@@ -229,7 +233,8 @@ synthetic response score и не меняет веса readiness.
 - post-ride RPE остается observed feedback и используется versioned response
   layer без изменения исходной feedback semantics
 - date-level `next_day_recovery` является явным `feeling` input для
-  `v2_signal_composition`; после upsert readiness пересчитывается детерминированно
+  `v2_signal_composition_response_v1`; после upsert readiness пересчитывается
+  детерминированно
 
 ## Internal dashboard surface
 

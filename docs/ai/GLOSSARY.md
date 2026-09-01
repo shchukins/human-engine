@@ -109,9 +109,11 @@ Recovery не заменяет fatigue, а корректирует readiness п
 Versioned activity-level description of how much a completed workout cost the
 athlete, materialized in `activity_response_metrics`.
 
-Phase 1 combines objective activity metrics with optional RPE, exposes explicit
-availability and comparable-session median baselines, and does not create a
-synthetic aggregate response score. It is independent of HealthKit.
+The activity layer combines objective activity metrics with optional RPE,
+exposes explicit availability and comparable-session median baselines, and does
+not persist a synthetic aggregate response score. The readiness layer derives a
+versioned aggregate only from usable baseline deviations. It is independent of
+HealthKit.
 
 ---
 

@@ -5,9 +5,10 @@
 `activity_subjective_feedback` stores lightweight subjective feedback that acts as a user-reported ground truth layer.
 
 It captures how training felt and how recovery felt. In
-`v2_signal_composition`, date-level next-day recovery is also an explicit
-current-day `feeling` input; post-ride RPE remains an observed outcome consumed
-by the versioned activity-response layer.
+`v2_signal_composition_response_v1`, date-level next-day recovery is an explicit
+current-day `feeling` input. Post-ride RPE remains an observed outcome consumed
+through baseline-relative versioned response metrics; raw RPE is never mapped
+directly to readiness.
 
 Current scope:
 
@@ -51,7 +52,8 @@ This supports future work in:
 Important:
 
 - no model adaptation is implemented here
-- no recommendation changes are driven by feedback yet
+- feedback changes readiness only through the documented deterministic
+  `feeling` and baseline-relative `response` formulas
 - deterministic calculations stay separate from the feedback layer
 
 ---

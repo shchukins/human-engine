@@ -282,11 +282,12 @@ readiness_score_raw = weighted average of available scored signal families
 readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
 ```
 
-`freshness` has configured weight `0.6`; available `feeling` and `physiology`
-share the `0.4` evidence budget. Versioned response metrics are materialized in
-`activity_response_metrics` and exposed in `response` as context-only; they do
-not yet alter the score.
-Current writes use version `v2_signal_composition`; legacy `v2` rows remain stored.
+`freshness` has configured weight `0.6`. Baseline-backed `response` receives up
+to `0.2` from the `0.4` evidence budget; available `feeling` and `physiology`
+share the remainder. Missing response returns that budget to recovery evidence
+and therefore preserves the previous formula exactly.
+Current writes use version `v2_signal_composition_response_v1`; legacy `v2` and
+`v2_signal_composition` rows remain stored.
 
 ### GoodDayProbability
 

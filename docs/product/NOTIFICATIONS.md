@@ -187,7 +187,8 @@ Semantics:
 
 - repeated taps обновляют canonical row
 - duplicate callbacks не создают дубликаты
-- feedback collection не меняет readiness logic
+- RPE upsert детерминированно пересчитывает versioned response metrics и
+  затронутое readiness window; raw feedback score не используется напрямую
 
 ---
 
