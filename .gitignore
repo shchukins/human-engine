@@ -1,15 +1,9 @@
 # macOS
 .DS_Store
 
-# Xcode
-DerivedData/
-build/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcuserstate
-
-# Swift Package Manager
-.build/
+# Retired iOS client local remnants
+/ios/
+/HumanEngineIOS.xcodeproj/
 
 # Python
 __pycache__/
@@ -31,10 +25,6 @@ __pycache__/
 
 # Runtime data
 /data/
-
-# iOS
-DerivedData/
-*.xcuserstate
 
 venv/
 *.png

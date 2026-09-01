@@ -18,27 +18,23 @@ def _transform_tss_nonlinear(tss: float | None) -> float:
     return tss or 0.0
 
 
-def recompute_load_state_daily_v2(user_id: str) -> dict[str, Any]:
+def recompute_load_state_daily_v2(
+    user_id: str,
+    through_date: str | None = None,
+) -> dict[str, Any]:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                with source_dates as (
-                    select date
-                    from daily_training_load
-                    where user_id = %s
-
-                    union
-
-                    select date
-                    from health_recovery_daily
-                    where user_id = %s
-                ),
-                bounds as (
+                with bounds as (
                     select
                         min(date) as min_date,
-                        max(date) as max_date
-                    from source_dates
+                        greatest(
+                            max(date),
+                            coalesce(%s::date, max(date))
+                        ) as max_date
+                    from daily_training_load
+                    where user_id = %s
                 ),
                 calendar as (
                     select generate_series(
@@ -59,7 +55,7 @@ def recompute_load_state_daily_v2(user_id: str) -> dict[str, Any]:
                    and dtl.date = c.date
                 order by c.date asc;
                 """,
-                (user_id, user_id, user_id),
+                (through_date, user_id, user_id),
             )
             rows = cur.fetchall()
 

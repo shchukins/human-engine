@@ -1,6 +1,6 @@
 # Whatte — CURRENT STATE
 
-Last updated: 2026-05-21
+Last updated: 2026-09-02
 
 ---
 
@@ -11,13 +11,13 @@ Whatte перешел от load-only readiness к рабочей baseline-арх
 Текущая схема:
 
 ```text
-LoadState + RecoveryState -> Readiness -> GoodDayProbability
+LoadState + Response + Feeling + optional Physiology -> Readiness -> GoodDayProbability
 ```
 
 Система уже работает как end-to-end pipeline:
 
 ```text
-iOS -> public API -> backend -> raw -> normalized -> recovery -> readiness -> response
+Strava + Web/Telegram feedback -> backend -> daily state -> readiness -> decision
 ```
 
 Это уже не только модельная заготовка. В backend реализованы ingestion, materialized daily layers и response path.
@@ -51,11 +51,9 @@ Pipeline:
 - `freshness`
 - `version`
 
-### 2.2 Recovery contour
+### 2.2 Historical physiology contour
 
-Источник:
-
-- HealthKit
+Источник: ранее сохранённые HealthKit records. Новый ingestion остановлен.
 
 Pipeline:
 
@@ -85,12 +83,14 @@ Pipeline:
 - поле `recovery_score_simple` исторически сохраняет старое имя
 - по смыслу текущий recovery layer уже baseline-aware, а не purely heuristic-only placeholder
 - breakdown recovery baseline сохраняется в `recovery_explanation_json`
+- raw, normalized и recovery rows не удаляются
+- historical physiology используется только для той же даты и не переносится вперёд
 
 ### 2.3 Readiness layer
 
 Pipeline:
 
-- `load_state_daily_v2 + health_recovery_daily -> readiness_daily`
+- `load_state_daily_v2 + response + feeling + optional exact-date physiology -> readiness_daily`
 
 Содержит:
 
@@ -107,8 +107,8 @@ Pipeline:
 
 - readiness хранится как отдельный daily storage layer
 - readiness не равен `freshness`
-- readiness объединяет load contour и recovery contour
-- на последних health dates readiness считается из двух контуров, а не fallback-only от recovery
+- missing physiology имеет `unavailable` и не штрафует score
+- readiness получает historical physiology через provider-neutral boundary
 - `readiness_daily.explanation_json` теперь включает recovery breakdown из `health_recovery_daily.recovery_explanation_json`
 - daily Telegram notification строится от `readiness_daily`, а не от legacy freshness-only summary
 
@@ -116,26 +116,15 @@ Pipeline:
 
 ## 3. Data pipeline
 
-### 3.1 HealthKit full sync
-
-Endpoint:
-
-`POST /api/v1/healthkit/full-sync/{user_id}`
-
-Статус:
-
-- full-sync теперь является self-sufficient orchestration endpoint
-- current state после одного full-sync считается end-to-end на backend
+### 3.1 Daily readiness orchestration
 
 Flow:
 
-1. raw ingest в `healthkit_ingest_raw`
-2. latest raw -> normalized health tables
-3. сбор affected dates
-4. recompute `health_recovery_daily`
-5. recompute `load_state_daily_v2` минимум до max affected date
-6. recompute `readiness_daily`
-7. агрегированный response обратно в клиент
+1. worker определяет текущую дату в `WHATTE_TIMEZONE`
+2. `load_state_daily_v2` продлевается до target date с `tss = 0` в дни без тренировок
+3. readiness загружает response, feeling и optional exact-date historical physiology
+4. `readiness_daily` материализуется
+5. deterministic recommendation/briefing доставляется в Web Today и Telegram
 
 ### 3.2 Load model v2 recompute
 
@@ -146,7 +135,7 @@ Endpoint:
 Особенности:
 
 - непрерывная календарная ось
-- `load_state_daily_v2` строится до latest health/recovery date
+- `load_state_daily_v2` строится до явной target date
 - `tss = 0` в дни без тренировок
 - fast + slow fatigue
 - `fatigue_total` как weighted mixture
@@ -205,35 +194,27 @@ recovery_score_simple = 0.4 * hrv_score + 0.3 * rhr_score + 0.3 * sleep_score
 
 ### 4.3 Readiness baseline
 
-Текущая формула:
-
-```text
-freshness_norm = clamp(50 + freshness, 0, 100)
-readiness_score_raw = 0.6 * freshness_norm + 0.4 * recovery_score_simple
-readiness_score = clamp(round(readiness_score_raw, 1), 0, 100)
-good_day_probability = readiness_score / 100
-```
+Текущая versioned composition использует семейства `load`, `freshness`,
+`response`, `feeling`, `physiology`. Веса нормализуются только по доступным
+scored signals; точная формула зафиксирована в `docs/models/READINESS_MODEL.md`.
 
 Важно:
 
 - `good_day_probability` уже реализован
 - это baseline probability-like mapping
 - это не статистически откалиброванная вероятность
-- readiness formula не менялась; расширен только explanation payload
+- missing physiology не считается нулём или плохим восстановлением
 
 ---
 
 ## 5. Что уже работает end-to-end
 
-- iOS приложение отправляет HealthKit payload
-- backend принимает `full-sync` как self-sufficient orchestration endpoint
-- данные попадают в raw таблицу
-- latest raw раскладывается в normalized health tables
-- пересчитывается `health_recovery_daily`
-- `load_state_daily_v2` дотягивается до latest health/recovery date
-- на последних датах `readiness_daily` считается из load contour + recovery contour
-- `readiness_daily.explanation_json` содержит recovery breakdown
-- результат возвращается в iOS через public API
+- Strava ingestion материализует training load и response metrics
+- Web/Telegram сохраняют RPE и morning feeling
+- scheduled worker продлевает load state до текущей локальной даты
+- `readiness_daily` работает без physiology
+- historical exact-date physiology продолжает обогащать старые даты
+- recommendation и briefing доступны через API, Web Today и Telegram
 
 Публичный API уже проксируется через VPS / Caddy через `api.shchukin.de`.
 
@@ -241,7 +222,7 @@ good_day_probability = readiness_score / 100
 
 - `shchukin.de` — web surfaces
 - `shchukin.de/dashboard` — Internal Dashboard
-- `api.shchukin.de` — technical API, Strava OAuth callback, Telegram webhook, HealthKit sync, `/healthz`, OpenAPI/docs when enabled
+- `api.shchukin.de` — technical API, Strava OAuth callback, Telegram webhook, `/healthz`, OpenAPI/docs when enabled
 
 Dashboard status:
 
@@ -293,7 +274,7 @@ Operational monitoring status:
 
 - GET readiness API с `recommendation`, `reason`, `briefing`, `data_quality`
 - daily Telegram readiness delivery
-- deterministic formatting для iOS / Today-style consumption
+- deterministic formatting для Web Today / Telegram consumption
 
 ### 6.3 Subjective feedback layer
 
@@ -320,7 +301,7 @@ Operational monitoring status:
 
 ## 8. Ключевые архитектурные решения
 
-- Load и Recovery разделены
+- Load и optional historical Physiology разделены
 - Readiness не равен freshness
 - Readiness хранится отдельно в `readiness_daily`
 - Recovery влияет на readiness, но не переписывает load model
@@ -337,12 +318,12 @@ Operational monitoring status:
 ### Реальные
 
 - Strava
-- HealthKit
+- Web/Telegram subjective feedback
+- preserved historical HealthKit rows (read-only, exact-date only)
 
 ### Planned
 
-- Garmin
-- дополнительные recovery signals
+- optional provider integrations behind the physiology boundary
 - decision / recommendation outputs
 
 ---
@@ -362,7 +343,7 @@ Operational monitoring status:
 
 ### P3 — UX / Product integration
 
-- user-facing readiness screen в iOS
+- развитие Web Today
 - объяснения на основе уже существующих breakdown payloads
 
 ### P4 — Model improvements
@@ -377,9 +358,10 @@ Operational monitoring status:
 
 Система считается рабочей на текущем этапе, если:
 
-- данные приходят из HealthKit и Strava
+- training data приходит из Strava, feedback — из Web/Telegram
 - считается `load_state_daily_v2`
-- считается `health_recovery_daily`
 - считается `readiness_daily`
+- отсутствие physiology не блокирует daily loop
+- historical HealthKit rows остаются сохранены
 - `good_day_probability` доступен как отдельный output
 - документация соответствует реальному backend baseline

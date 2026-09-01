@@ -4,7 +4,7 @@ Change summary:
 
 - Reframed the product as a deterministic physiological decision system, not just a backend pipeline.
 - Split the map into source, storage, model, decision, delivery, feedback, and calibration layers.
-- Marked each major layer as `implemented`, `partial`, `planned`, or `future` based on current docs and repo state as of 2026-05-20.
+- Marked each major layer as `implemented`, `partial`, `planned`, `historical`, or `future` based on current repo state as of 2026-09-01.
 
 ## 1. Executive overview
 
@@ -14,12 +14,9 @@ It solves one core problem:
 
 > given mixed real-world training and recovery data, determine current physiological readiness and turn that into an explainable daily training decision
 
-Why cross-ecosystem data matters:
-
-- training load often lives in Strava and connected devices
-- recovery signals often live in Apple Health / HealthKit
-- the useful daily answer depends on both load and recovery, not one ecosystem alone
-- preserving raw source data keeps the system explainable and recomputable as the model evolves
+The active core uses Strava load plus response and subjective feeling. Preserved
+HealthKit history can enrich the matching historical date, but wearable data is
+not collected and is not required by the current daily loop.
 
 Core boundary:
 
@@ -31,8 +28,9 @@ Core boundary:
 
 ```mermaid
 flowchart LR
-    A[Sources<br/>Strava<br/>Apple Health / HealthKit<br/>User profile<br/>Subjective feedback<br/>Future equipment<br/>Future calendar/context]
-    B[Ingestion<br/>webhooks, full sync, API payloads]
+    A[Active sources<br/>Strava<br/>Subjective feedback<br/>User profile]
+    AH[Historical optional source<br/>stored HealthKit physiology]
+    B[Ingestion<br/>Strava webhooks and feedback]
     C[Raw storage<br/>immutable source payloads]
     D[Normalization<br/>source-specific tables]
     E[Derived metrics<br/>daily load, sleep, HRV, RHR, weight]
@@ -40,11 +38,12 @@ flowchart LR
     G[Readiness<br/>daily deterministic score and explanation]
     H[Explanation<br/>structured factors, fallback mode, data quality]
     I[Recommendation<br/>deterministic decision layer]
-    J[Briefing / UI<br/>API, Telegram, iOS, future Today screen]
+    J[Briefing / UI<br/>API, Telegram, Web Today]
     K[Feedback<br/>RPE, next-day recovery, future pre-ride input]
     L[Calibration / validation<br/>snapshots, analytics, offline research]
 
     A --> B --> C --> D --> E --> F --> G --> H --> I --> J
+    AH --> G
     J --> K --> L
     G --> L
     I --> L
@@ -72,9 +71,14 @@ sources
 ### Implemented
 
 - Strava: workout/activity ingestion and daily load inputs
-- Apple Health / HealthKit: sleep, HRV, resting HR, weight via full-sync payloads
 - User profile: present in product scope and docs, used as a required input family for training interpretation, but not yet documented as a fully mature layer
 - Subjective feedback: Telegram-based post-ride RPE and next-day recovery collection
+
+### Historical
+
+- Apple Health / HealthKit raw, normalized, and recovery rows are preserved
+- collection endpoints and the iOS client are retired
+- an exact-date historical recovery row may enrich readiness for that date only
 
 ### Partial
 
@@ -87,7 +91,7 @@ sources
 
 ### Future
 
-- Additional device or equipment ecosystems beyond current Strava + Apple Health bridge
+- Optional provider integrations behind the provider-neutral physiology boundary
 
 ## 4. Backend layers
 
@@ -96,7 +100,7 @@ sources
 Status: `implemented`
 
 - FastAPI backend is the system entry point
-- exposes sync, recompute, readiness read, notification/debug, callback paths, and the internal SSR dashboard route
+- exposes Strava sync, recompute, readiness read, notification/debug, callback paths, and the internal SSR dashboard route
 - current repo evidence:
   - `backend/backend/app.py`
   - `backend/backend/dashboard/`
@@ -108,7 +112,6 @@ Status: `implemented`
 Status: `implemented`
 
 - Strava webhook + ingest jobs
-- HealthKit full-sync ingest and orchestration
 - feedback callback ingestion for Telegram prompts
 
 ### Raw tables
@@ -121,6 +124,8 @@ Status: `implemented`
   - `strava_activity_ingest_job`
   - `strava_activity_raw`
   - `healthkit_ingest_raw`
+
+`healthkit_ingest_raw` is historical storage and has no active public write path.
 
 ### Normalized tables
 
@@ -350,9 +355,7 @@ Status: `partial`
 
 System map slice:
 
-- HealthKit sync
-- normalization
-- recovery recompute
+- scheduled local-day orchestration
 - load state continuity
 - readiness recompute
 - freshness-aware daily delivery
@@ -457,11 +460,11 @@ Note on GitHub issues `#91-#96`:
 
 ### iOS app
 
-Status: `partial`
+Status: `retired`
 
-- iOS is part of the documented product flow and HealthKit ingestion architecture
-- Today/readiness UX is documented in `docs/ui/READINESS_TODAY_SCREEN.md`
-- the repo currently contains the Xcode project shell but not committed Swift source files, so repo-visible implementation is incomplete
+- the iOS client and Xcode project were removed from the repository
+- HealthKit collection is no longer an active product capability
+- historical backend records remain intact
 
 ### Telegram bot / notifications
 
@@ -472,13 +475,13 @@ Status: `implemented baseline`
 - next-day recovery prompt
 - callback-based feedback collection
 
-### Future Today screen / morning briefing
+### Web Today / morning briefing
 
-Status: `planned`
+Status: `implemented baseline`
 
-- freshness-aware morning answer
-- sync status visibility
-- explicit stale/missing-data handling
+- mobile-friendly Web Today surface
+- scheduled local-day readiness recompute and Telegram delivery
+- explicit optional physiology availability
 
 ### Internal dashboard
 
@@ -549,7 +552,7 @@ What must be stored for future validation:
 Status: `implemented`
 
 - backend emits JSON logs with stable event names
-- examples include API, HealthKit sync, readiness recompute, and error events
+- examples include API, Strava ingest, readiness recompute, and error events
 
 ### Grafana / Loki
 
@@ -563,7 +566,6 @@ Status: `implemented`
 
 Status: `implemented baseline`
 
-- HealthKit full-sync start/finish and payload processing events
 - readiness recompute events
 - request tracing via request IDs
 - feedback prompt delivery persistence in `subjective_feedback_prompt_log`
@@ -585,11 +587,9 @@ Important boundary:
 
 - Recommendation layer is only partially implemented as a readiness-to-zone mapping plus briefing templates; it is not yet a full ride preparation engine.
 - Data confidence, freshness, and trust semantics are important but not yet formalized into one consistent production model.
-- HealthKit background or event-driven sync reliability is still a product/implementation gap; current docs emphasize freshness and sync-state work as active scope.
 - `good_day_probability` exists, but it is not yet a calibrated probability model.
 - Calibration is not production ML; current feedback storage supports validation, not online adaptation.
 - Research Sandbox remains future-only and should stay offline and review-gated.
-- iOS product surface is only partially visible in the repo; docs and the Xcode project exist, but committed app source is not currently present.
 
 ## 12. Simplification rule
 

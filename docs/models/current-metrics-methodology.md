@@ -318,9 +318,7 @@ GoodDayProbability = Readiness / 100
 
 ### Что уже реализовано
 
-- HealthKit ingestion
-- normalized health tables
-- `health_recovery_daily`
+- preserved historical normalized health tables and `health_recovery_daily`
 - `recovery_explanation_json`
 - `load_state_daily_v2`
 - `readiness_daily`

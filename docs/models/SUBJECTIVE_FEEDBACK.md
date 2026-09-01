@@ -465,7 +465,7 @@ Possible next steps:
 
 - sport-specific second-tap feedback
 - morning recovery scheduler
-- iOS-native feedback collection
+- richer Web feedback interaction
 - Strava subjective import if available
 - recommendation calibration
 - offline ML experiments using accumulated subjective feedback

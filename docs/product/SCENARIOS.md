@@ -23,8 +23,8 @@
 ### Flow
 
 1. Пользователь открывает систему
-2. Auto sync обновляет последние HealthKit данные
-3. Пересчитываются recovery, load state и readiness
+2. Worker продлевает load state до текущей локальной даты
+3. Readiness использует response, morning feeling и optional exact-date physiology
 4. Система возвращает status / score / probability и explanation
 5. Decision layer возвращает recommendation / reason / briefing
 6. Пользователь принимает решение
@@ -50,10 +50,10 @@
 
 ### Flow
 
-1. Пользователь открывает iOS app
-2. `SyncCoordinator` запускает auto sync
-3. Backend сохраняет HealthKit payload и выполняет deterministic recompute
-4. Today screen читает актуальный readiness state
+1. Пользователь открывает Web Today
+2. Backend читает materialized readiness за текущую локальную дату
+3. Пользователь при необходимости отправляет one-tap morning feeling
+4. Backend выполняет deterministic daily recompute
 5. Пользователь видит:
 
 - readiness
@@ -65,7 +65,7 @@
 
 - trend строится из `readiness_daily` history
 - history endpoint не делает recompute
-- readiness должен быть доступен по непрерывной daily history без gaps
+- load state должен продолжаться по календарю без зависимости от wearable sync
 - recommendation строится из текущего `readiness_score`
 
 ---
@@ -74,9 +74,9 @@
 
 ### Context
 
-- пользователь открывает iOS Today screen
-- HealthKit auto sync может обновить последние данные
-- экран читает daily readiness и history endpoints
+- пользователь открывает mobile-friendly Web Today
+- экран читает daily readiness и backend-owned recommendation
+- отсутствие physiology показывается как optional unavailable
 
 ### User sees
 
@@ -85,8 +85,8 @@
 - recommendation
 - readiness trend
 - freshness signal
-- recovery signal
-- recovery breakdown:
+- optional physiology signal
+- historical physiology breakdown when the same-date record exists:
   - sleep score
   - HRV score
   - resting HR score
@@ -100,7 +100,7 @@
 
 ### Notes
 
-- Today screen displays current backend state
+- Web Today displays current backend state
 - recommendation is deterministic
 - UI does not run model logic locally
 

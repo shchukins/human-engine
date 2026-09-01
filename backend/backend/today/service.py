@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
+from backend.config import settings
 from backend.db import get_conn
 from backend.services.readiness_query import get_latest_readiness_daily
 from backend.services.subjective_feedback_service import (
@@ -14,7 +15,7 @@ from backend.services.subjective_feedback_service import (
     FEEDBACK_TYPE_POST_RIDE_RPE,
 )
 
-MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+WHATTE_TZ = ZoneInfo(settings.whatte_timezone)
 SIGNAL_FAMILY_ORDER = ("freshness", "feeling", "physiology", "response", "load")
 SIGNAL_FAMILY_LABELS = {
     "freshness": "Freshness",
@@ -72,7 +73,7 @@ def _bounded_error(exc: Exception) -> str:
 def _format_timestamp(value: Any) -> str:
     if not isinstance(value, datetime):
         return "—"
-    return value.astimezone(MOSCOW_TZ).strftime("%d %b, %H:%M")
+    return value.astimezone(WHATTE_TZ).strftime("%d %b, %H:%M")
 
 
 def _format_duration(value: int | None) -> str:
@@ -92,7 +93,7 @@ def _format_distance(value: float | None) -> str:
 
 
 def get_local_today() -> date:
-    return datetime.now(MOSCOW_TZ).date()
+    return datetime.now(WHATTE_TZ).date()
 
 
 def _build_factors(readiness: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -216,8 +217,8 @@ def get_today_data(
     preferred_activity_id: int | None = None,
     now: datetime | None = None,
 ) -> TodayData:
-    evaluation_at = now or datetime.now(MOSCOW_TZ)
-    target_date = evaluation_at.astimezone(MOSCOW_TZ).date()
+    evaluation_at = now or datetime.now(WHATTE_TZ)
+    target_date = evaluation_at.astimezone(WHATTE_TZ).date()
 
     readiness: dict[str, Any] | None = None
     readiness_section = TodaySection(status="ok", error=None)

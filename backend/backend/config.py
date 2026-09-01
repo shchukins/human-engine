@@ -30,6 +30,10 @@ class Settings(BaseSettings):
         default="sergey",
         alias="DAILY_READINESS_USER_ID",
     )
+    whatte_timezone: str = Field(
+        default="Europe/Moscow",
+        alias="WHATTE_TIMEZONE",
+    )
     daily_readiness_fallback_hour_utc: int = Field(
         default=7,
         ge=0,

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import json
 import math
@@ -95,13 +95,16 @@ def _float_or_none(value: Any) -> float | None:
     return numeric
 
 
-def _healthkit_freshness_label(data_freshness: dict[str, Any] | None) -> str:
+def _physiology_availability_label(data_freshness: dict[str, Any] | None) -> str:
     state = (data_freshness or {}).get("state", "missing")
+    provider = (data_freshness or {}).get("provider")
+    if state == "fresh" and provider == "healthkit":
+        return "available · historical"
     return {
-        "fresh": "свежие",
-        "stale": "устаревшие",
-        "missing": "отсутствуют",
-    }.get(state, "неизвестно")
+        "fresh": "available",
+        "stale": "unavailable for this date",
+        "missing": "unavailable (optional)",
+    }.get(state, "unknown")
 
 
 def compute_readiness_score(freshness: float | None) -> int | None:
@@ -377,14 +380,14 @@ def build_readiness_briefing_message(
     data_freshness: dict[str, Any] | None = None,
 ) -> str:
     recovery_explanation = recovery_explanation or {}
-    freshness_label = _healthkit_freshness_label(data_freshness)
+    physiology_label = _physiology_availability_label(data_freshness)
 
     lines = [
         "WHATTE · Today",
         "",
         f"Дата briefing: {notification_date}",
-        f"Дата recovery-данных: {recovery_date}",
-        f"Данные HealthKit: {freshness_label}",
+        f"Дата physiology-данных: {recovery_date or 'n/a'}",
+        f"Physiology: {physiology_label}",
         "",
         f"Готовность: {_fmt(readiness_score, 1)}",
         f"Статус: {status_text or 'n/a'}",
@@ -410,11 +413,11 @@ def build_readiness_briefing_message(
     return "\n".join(lines)
 
 
-def get_healthkit_data_freshness(
+def get_physiology_data_freshness(
     user_id: str,
     for_date: date,
 ) -> dict[str, Any]:
-    """Classify persisted recovery inputs without changing readiness logic."""
+    """Describe exact-date optional physiology without carrying history forward."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -422,47 +425,27 @@ def get_healthkit_data_freshness(
                 select date, updated_at
                 from health_recovery_daily
                 where user_id = %s
-                  and date <= %s
-                order by date desc
-                limit 1;
+                  and date = %s;
                 """,
                 (user_id, for_date),
             )
             recovery_row = cur.fetchone()
 
-            cur.execute(
-                """
-                select generated_at, received_at
-                from healthkit_ingest_raw
-                where user_id = %s
-                order by received_at desc, id desc
-                limit 1;
-                """,
-                (user_id,),
-            )
-            sync_row = cur.fetchone()
-
     if recovery_row is None:
         return {
             "state": "missing",
             "recovery_date": None,
-            "last_sync_generated_at": sync_row[0] if sync_row else None,
-            "last_sync_received_at": sync_row[1] if sync_row else None,
+            "provider": None,
+            "collection_status": "retired",
         }
 
     recovery_date, recovery_updated_at = recovery_row
-    state = (
-        "fresh"
-        if recovery_date >= for_date - timedelta(days=1)
-        else "stale"
-    )
     return {
-        "state": state,
+        "state": "fresh",
         "recovery_date": recovery_date,
         "recovery_updated_at": recovery_updated_at,
-        "last_successful_sync_at": recovery_updated_at,
-        "last_sync_generated_at": sync_row[0] if sync_row else None,
-        "last_sync_received_at": sync_row[1] if sync_row else None,
+        "provider": "healthkit",
+        "collection_status": "historical",
     }
 
 
@@ -706,6 +689,7 @@ def build_daily_readiness_message(
                 ) = readiness_row
 
                 explanation = _as_dict(explanation_json)
+                source_timestamps = _as_dict(explanation.get("source_timestamps"))
                 recovery_explanation = _as_dict(
                     explanation.get("recovery_explanation")
                 )
@@ -731,7 +715,7 @@ def build_daily_readiness_message(
 
                 return build_readiness_briefing_message(
                     notification_date=notification_date or readiness_date,
-                    recovery_date=readiness_date,
+                    recovery_date=source_timestamps.get("recovery_source_at"),
                     readiness_score=score,
                     status_text=status_text,
                     good_day_probability=_float_or_none(good_day_probability),
@@ -823,7 +807,7 @@ def build_daily_readiness_message(
         return (
             "WHATTE\n\n"
             "📅 Daily Readiness Summary\n"
-            f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}\n"
+            f"Physiology: {_physiology_availability_label(data_freshness)}\n"
             "Недостаточно данных для расчета состояния"
         )
 
@@ -858,8 +842,8 @@ def build_daily_readiness_message(
         "",
         "📅 Daily Readiness Summary",
         f"Дата briefing: {notification_date or date}",
-        f"Дата recovery-данных: {recovery_date or date}",
-        f"Данные HealthKit: {_healthkit_freshness_label(data_freshness)}",
+        f"Дата physiology-данных: {recovery_date or 'n/a'}",
+        f"Physiology: {_physiology_availability_label(data_freshness)}",
         "",
         f"Fitness: {_fmt(fitness, 2)}",
         f"Fatigue: {_fmt(fatigue, 2)}",
@@ -1228,7 +1212,7 @@ def _send_daily_readiness_locked(
     data_freshness: dict[str, Any] | None = None,
 ) -> bool:
     if data_freshness is None:
-        data_freshness = get_healthkit_data_freshness(
+        data_freshness = get_physiology_data_freshness(
             user_id=user_id,
             for_date=notification_date,
         )
@@ -1322,8 +1306,7 @@ def send_daily_readiness(
         notification_date = datetime.now(timezone.utc).date()
 
     # The lock spans Telegram I/O intentionally. Daily briefing delivery is
-    # low-frequency, and serializing the complete lifecycle prevents a fresh
-    # HealthKit event from being lost behind an in-flight stale fallback claim.
+    # low-frequency, and serializing the lifecycle prevents duplicate sends.
     with _daily_readiness_delivery_lock(user_id, notification_date):
         return _send_daily_readiness_locked(
             user_id=user_id,

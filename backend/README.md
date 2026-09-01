@@ -25,17 +25,15 @@ Backend отвечает за:
 Источники:
 
 - Strava
-- HealthKit
+- subjective feedback from Web and Telegram
+- historical HealthKit rows as optional exact-date physiology
 
 Базовый поток:
 
 ```text
-Strava -> raw ingest / daily load ------------------+
-                                                    |
-HealthKit -> raw ingest -> normalized -> recovery --+-> readiness
-                                                    |
-                                                    v
-                                         load_state_daily_v2
+Strava -> raw ingest -> daily load -> load_state_daily_v2 --+
+subjective feedback -> feeling / response ------------------+-> readiness
+historical health_recovery_daily (exact date, optional) -----+
 ```
 
 Деплой:
@@ -62,16 +60,14 @@ FastAPI + PostgreSQL
 - загрузка активностей
 - формирование `daily_training_load`
 
-### 2. HealthKit ingestion
+### 2. Historical physiology storage
 
-Реализованы:
+HealthKit collection is retired and no `/api/v1/healthkit/*` routes are
+exposed. Existing raw, normalized, and recovery rows remain intact. The legacy
+processing services remain for deliberate local replay of already stored raw
+payloads, not as an active ingestion path.
 
-- raw ingestion endpoint
-- orchestration endpoint `POST /api/v1/healthkit/full-sync/{user_id}`
-- raw table `healthkit_ingest_raw`
-- pipeline raw ingest -> normalized -> recovery -> readiness
-
-### 3. Health normalized layer
+### 3. Historical health normalized layer
 
 Реализованы таблицы:
 
@@ -82,7 +78,7 @@ FastAPI + PostgreSQL
 
 Назначение:
 
-- привести payload HealthKit к детерминированной и пересчитываемой форме
+- сохранять ранее полученные HealthKit records в детерминированной форме
 - отделить raw payload от прикладных расчетов
 
 ### 4. Recovery layer
@@ -115,6 +111,7 @@ FastAPI + PostgreSQL
 
 - поле по-прежнему называется `recovery_score_simple` для совместимости схемы и API
 - по смыслу это уже не purely naive heuristic-only score
+- новые recovery rows из HealthKit в production больше не собираются
 
 ### 5. Load model v2
 
@@ -125,6 +122,7 @@ FastAPI + PostgreSQL
 Текущий расчет:
 
 - идет по непрерывной календарной оси
+- продлевается до явной `through_date`, не используя physiology как calendar driver
 - использует `tss = 0` в дни без тренировок
 - использует текущий линейный input по TSS
 - хранит `fitness`
@@ -148,9 +146,9 @@ FastAPI + PostgreSQL
 Текущий readiness baseline (`v2_signal_composition_response_v1`):
 
 - публикует независимые семейства `load`, `freshness`, `response`, `feeling`, `physiology`
-- работает от `freshness` без обязательного HealthKit
+- работает от `freshness` без HealthKit
 - использует date-level `next_day_recovery` как optional first-class `feeling`
-- использует `recovery_score_simple` как optional `physiology`
+- использует exact-date historical `recovery_score_simple` как optional `physiology`
 - нормализует веса только по доступным scored-семействам; missing physiology не штрафует score
 - сохраняет legacy `v2` и `v2_signal_composition` rows отдельно
 - сохраняет `readiness_score`
@@ -308,51 +306,39 @@ Both feedback types use `source=web`. Repeated submissions update the existing
 natural-key row rather than creating duplicates. Native forms validate scores
 server-side, reject cross-site submissions, and use POST/redirect/GET.
 
-## HealthKit full sync pipeline
+## Daily readiness pipeline
 
-Текущий orchestration pipeline:
+Текущий core orchestration pipeline:
 
 ```text
-POST /api/v1/healthkit/full-sync/{user_id}
-    -> save raw payload
-    -> process latest raw payload into normalized tables
-    -> collect affected dates
-    -> recompute health_recovery_daily for affected dates
-    -> recompute load_state_daily_v2 up to latest recovery/training date
-    -> recompute readiness_daily for affected dates
+configured local date
+    -> recompute load_state_daily_v2 through target date
+    -> load response + feeling + optional exact-date historical physiology
+    -> recompute readiness_daily
+    -> deterministic recommendation / briefing
 ```
 
-Важно:
-
-- recovery пересчитывается поверх normalized health tables
-- load_state_daily_v2 пересчитывается перед readiness, чтобы freshness был актуален
-- readiness пересчитывается как отдельный слой
-- public API уже работает end-to-end через VPS и Caddy
+Timezone задаётся `WHATTE_TIMEZONE` (по умолчанию `Europe/Moscow`). Историческая
+physiology используется только при совпадении даты и никогда не переносится на
+текущий день.
 
 ## Telegram daily readiness notification
 
 Daily Telegram briefing в текущем backend использует `readiness_daily` как source of truth.
 
-Основной утренний триггер — успешный HealthKit full-sync, который содержит
-sleep, HRV или resting HR за локальную текущую дату и завершил пересчет
-recovery/readiness. Настраиваемое расписание
+Основной утренний триггер — worker schedule. Перед delivery worker материализует
+load state и readiness за текущую локальную дату. Настраиваемое расписание
 `DAILY_READINESS_FALLBACK_HOUR_UTC` и
-`DAILY_READINESS_FALLBACK_MINUTE_UTC` задают fallback time (по умолчанию
-`07:30 UTC`), если fresh sync не отправил briefing раньше. Минутная отсрочка
-дает iPhone дополнительное окно для утренней синхронизации, но корректность не
-зависит от этого grace period.
+`DAILY_READINESS_FALLBACK_MINUTE_UTC` задают время запуска (по умолчанию
+`07:30 UTC`).
 
-Freshness состояния:
+Optional physiology состояния:
 
-- `fresh` — recovery за текущую дату пересчитан после успешного sync
-- `stale` — последний доступный recovery относится к более ранней дате
-- `missing` — recovery данных нет
+- `fresh` — exact-date historical physiology существует
+- `missing` — physiology для целевой даты отсутствует; это штатный optional state
 
-Сообщение явно показывает freshness HealthKit данных. Дневной unique row в
-`notification_log` сериализует event/fallback триггеры. Одинаковые или более
-старые версии дают no-op; stale briefing обновляется через Telegram
-`editMessageText`, а при невозможности edit создается ровно одно отдельное
-update-сообщение.
+Сообщение показывает generic physiology availability, а не ошибку HealthKit.
+Дневной unique row в `notification_log` сохраняет idempotent delivery lifecycle.
 
 Основные поля:
 
@@ -467,7 +453,6 @@ External integrations:
 
 - Strava API
 - Strava Webhooks
-- Apple HealthKit via iOS sync client
 
 ## Структура проекта
 
@@ -487,8 +472,7 @@ docker compose стек для сервера.
 
 Уже реализовано:
 
-- HealthKit ingestion и normalization
-- HealthKit full-sync orchestration
+- preserved historical HealthKit raw/normalized/recovery storage
 - recovery daily aggregation
 - recovery explanation payload
 - load model v2 baseline
@@ -502,7 +486,6 @@ docker compose стек для сервера.
 - калибровка readiness / probability
 - decision layer / recommendation layer
 - API и UI для user-facing insights
-- iOS integration polish
 
 ## AI Context
 

@@ -57,27 +57,25 @@ Source of truth:
 
 Важно:
 
-- notification layer не пересчитывает readiness
-- notification layer использует уже materialized readiness state
+- scheduled orchestration materializes readiness before invoking notification delivery
+- notification formatting itself does not calculate readiness
 - основное сообщение строится от score-level данных, а не от raw health samples
 
-Триггеры:
+Триггер:
 
-- основной: успешный HealthKit full-sync с recovery-сигналом за локальную
-  текущую дату после recompute recovery/readiness
-- fallback: worker не раньше
+- worker не раньше
   `DAILY_READINESS_FALLBACK_HOUR_UTC:DAILY_READINESS_FALLBACK_MINUTE_UTC`
   (по умолчанию `07:30 UTC`)
 
-Fallback и повторные sync используют один daily row в `notification_log`.
+Повторные worker loops используют один daily row в `notification_log`.
 Обычное сообщение создается не более одного раза, но row допускает монотонное
 обновление delivered content. PostgreSQL advisory lock на
 `(user_id, notification_date)` сериализует полный Telegram lifecycle, поэтому
-fresh sync не теряется за одновременно выполняющимся stale fallback:
+повторная доставка не создаёт дубликат:
 
 ```text
 нет delivery -> sent
-stale/missing -> fresh или более новая recovery_date -> updated
+изменившийся content fingerprint -> updated
 editMessageText недоступен -> superseded одним update-сообщением
 тот же recovery_date + freshness + fingerprint -> no-op
 более старые или менее свежие данные -> no-op
@@ -88,11 +86,12 @@ update только при изменении SHA-256 fingerprint полного
 `telegram_chat_id` и `telegram_message_id` сохраняются для последующего
 `editMessageText`.
 
-HealthKit freshness в сообщении:
+Physiology availability в сообщении:
 
-- `fresh` — recovery относится к дате briefing
-- `stale` — последний recovery старше даты briefing
-- `missing` — recovery отсутствует
+- `fresh` — historical physiology существует для точной даты briefing
+- `missing` — physiology отсутствует и является штатным optional input
+
+Более старый historical recovery не переносится в текущий briefing.
 
 ---
 
@@ -297,7 +296,7 @@ Expected response includes:
 
 - morning recovery scheduler
 - sport-specific second-tap feedback
-- iOS-native subjective feedback collection
+- richer Web subjective feedback collection
 - richer reminder policies
 - recommendation calibration loops based on accumulated feedback
 

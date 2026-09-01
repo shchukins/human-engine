@@ -21,12 +21,11 @@ Build a stable and explainable training platform with reliable data collection, 
 
 ---
 
-### 2. iOS application
+### 2. Web daily experience
 
-- Improve HealthKit synchronization.
-- Refine dashboard UX.
-- Increase sync reliability.
-- Continue architecture cleanup.
+- Refine Web Today UX.
+- Keep the morning feedback flow reliable.
+- Make optional data availability explicit.
 
 ---
 
@@ -41,10 +40,9 @@ Build a stable and explainable training platform with reliable data collection, 
 
 ### 4. Data pipeline
 
-- Improve HealthKit ingestion.
 - Improve Strava integration.
 - Ensure data consistency.
-- Preserve historical data.
+- Preserve historical HealthKit data without collecting new records.
 
 ---
 

@@ -4,10 +4,10 @@
 
 Model V2 уже реализована в backend как baseline-архитектура.
 
-Переход выполнен от load-only readiness к двухконтурной схеме:
+Переход выполнен от load-only readiness к signal-composition схеме:
 
 ```text
-LoadState + RecoveryState -> Readiness -> GoodDayProbability
+LoadState + Response + Feeling + optional Physiology -> Readiness -> GoodDayProbability
 ```
 
 Это означает:
@@ -28,10 +28,10 @@ Load:
 - формируется из `daily_training_load`
 - материализуется в `load_state_daily_v2`
 
-Recovery:
+Historical Physiology:
 
-- отражает восстановление организма
-- формируется из HealthKit-derived tables
+- отражает ранее сохранённые recovery signals
+- формируется из historical HealthKit-derived tables только для совпадающей даты
 - материализуется в `health_recovery_daily`
 
 Важно:
@@ -113,16 +113,15 @@ good_day_probability = readiness_score / 100
 
 ## 2.1 Ingestion layer
 
-Источники:
+Активные источники:
 
 - Strava
-- HealthKit
+- Web/Telegram subjective feedback
 
 Реализовано:
 
 - Strava ingestion baseline
-- HealthKit raw ingest
-- HealthKit full-sync orchestration
+- HealthKit raw/full-sync ingestion retired; historical storage preserved
 
 ---
 
@@ -210,39 +209,19 @@ Load-side daily aggregate:
 
 ---
 
-# 3. HealthKit full-sync architecture
-
-Текущий iOS sync endpoint:
+# 3. Daily readiness architecture
 
 ```text
-POST /api/v1/healthkit/full-sync/{user_id}
-```
-
-Pipeline:
-
-```text
-raw ingest
--> latest raw -> normalized
--> recompute health_recovery_daily
--> recompute load_state_daily_v2
+configured local target date
+-> recompute load_state_daily_v2 through target date
+-> load response + feeling + optional exact-date historical physiology
 -> recompute readiness_daily
--> readiness history endpoint
--> iOS Today screen
+-> readiness API / Web Today / Telegram
 ```
 
-В текущем продукте этот путь выглядит так:
-
-```text
-HealthKit -> normalized -> recovery -> load_state_v2 -> readiness_daily -> history endpoint -> iOS Today screen
-```
-
-Фактический orchestration contract:
-
-- сначала пересчитывается `health_recovery_daily` для affected dates
-- затем `load_state_daily_v2` пересчитывается до latest recovery date
-- затем `readiness_daily` создается или обновляется для affected dates
-- `readiness_daily` ведется непрерывно по календарным дням
-- history endpoint читает уже сохраненные rows без recompute
+HealthKit collection and the iOS client are retired. Raw, normalized, recovery,
+and readiness history remains stored. Legacy processing code can deliberately
+replay stored raw payloads, but is not exposed through the production API.
 - readiness history не должен иметь дыр на последних дневных датах
 - pipeline валидирует, что `readiness_daily.explanation_json` содержит `recovery_explanation`
 - pipeline валидирует, что при доступном load-контуре `freshness` не равен `null`
@@ -283,12 +262,12 @@ freshness[d] =
 
 # 5. Recovery Model
 
-Источник: HealthKit.
+Источник: сохранённые historical HealthKit rows; новый ingestion остановлен.
 
 Текущая реализация:
 
-- raw payload сохраняется
-- latest raw раскладывается в normalized tables
+- raw payload и normalized rows сохранены
+- legacy offline replay остаётся возможным
 - `health_recovery_daily` агрегирует day-level recovery state
 
 Текущий recovery output:

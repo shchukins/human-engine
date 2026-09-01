@@ -47,7 +47,7 @@ Readiness
 Текущее состояние:
 
 - базовые daily layers уже реализованы без отдельного расширенного persisted feature layer
-- `daily_training_load`, normalized HealthKit tables, `health_recovery_daily`, `load_state_daily_v2` и `readiness_daily` уже работают как deterministic pipeline
+- `daily_training_load`, `load_state_daily_v2` и `readiness_daily` работают как active deterministic pipeline; normalized HealthKit tables и `health_recovery_daily` сохранены как historical layers
 - расширение feature extraction остается следующим этапом, а не обязательным условием текущего backend baseline
 
 ---

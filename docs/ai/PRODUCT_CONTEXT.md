@@ -131,7 +131,7 @@ Recommendation
 
 Текущее реализованное состояние:
 
-- HealthKit ingestion и full-sync уже работают в backend
+- HealthKit ingestion и iOS client retired; historical rows remain preserved
 - recovery и readiness уже materialized как отдельные daily layers
 - current readiness composition работает без обязательной physiology и
   публикует availability/contribution по каждому signal family

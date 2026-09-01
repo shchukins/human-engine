@@ -6,7 +6,6 @@
   <img src="https://img.shields.io/badge/статус-активный%20прототип-blue" />
   <img src="https://img.shields.io/badge/лицензия-MIT-yellow" />
   <img src="https://img.shields.io/badge/интеграция-Strava-FC4C02" />
-  <img src="https://img.shields.io/badge/iOS-HealthKit-black" />
   <a href="https://t.me/humanengine_lab">
     <img src="https://img.shields.io/badge/Telegram-Whatte-2CA5E0?logo=telegram" />
   </a>
@@ -28,7 +27,7 @@ Whatte — приложение и backend-система, которые объ
 
 Whatte:
 
-- собирает тренировочные данные из Strava и recovery-данные из Apple Health
+- собирает тренировочные данные из Strava и субъективный recovery feedback через Web/Telegram
 - рассчитывает load, recovery и readiness в отдельных, трассируемых слоях
 - объясняет, какие факторы повлияли на результат
 - детерминированно переводит readiness в рекомендацию на день
@@ -36,12 +35,11 @@ Whatte:
 ## Что уже работает
 
 - ingestion тренировок из Strava и обработка webhooks
-- ingestion HealthKit-данных через iOS-клиент
-- сохранение raw-данных и нормализованные health-данные
+- сохранённые исторические HealthKit-данные как optional physiology для точной даты
 - модели ежедневной нагрузки и восстановления
 - объяснимый daily readiness
 - детерминированные категории рекомендаций: `recovery`, `endurance`, `moderate` и `high_intensity`
-- компактный briefing output для API, Telegram и iOS-friendly surfaces
+- компактный briefing output для API, Telegram и Web Today
 - read-only внутренний операционный dashboard
 
 ## Что планируется
@@ -50,16 +48,15 @@ Whatte:
 - логика с учётом календаря
 - рекомендации по длительности и времени тренировки
 - калибровка readiness и явная персонализация
-- дальнейшее развитие пользовательского мобильного приложения
 
 Эти возможности не входят в текущий production baseline.
 
 ## Как это работает
 
 ```text
-Strava + Apple Health
+Strava + субъективный feedback + optional historical physiology
         ↓
-load + recovery
+load + freshness + response + feeling + optional physiology
         ↓
 readiness
         ↓
@@ -73,12 +70,12 @@ readiness
 - **Детерминированное ядро.** Одинаковые входные данные дают одинаковый результат.
 - **Объяснимость.** Рекомендацию можно проследить до данных, метрик и правил.
 - **Воспроизводимость.** Raw-данные сохраняются, а derived state можно пересчитать.
-- **Независимость от экосистемы.** Strava и Apple Health — точки подключения, а не привязка к конкретному оборудованию.
+- **Независимость от экосистемы.** Основной daily loop не требует wearable или мобильного приложения.
 - **ИИ — вспомогательный слой.** Он может помогать с объяснениями и текстом, но не рассчитывает состояние и не принимает решения.
 
 ## Текущий статус
 
-Whatte — активный прототип. Основной backend pipeline работает end-to-end: данные из Strava и HealthKit проходят нормализацию и используются для расчёта daily load, recovery, readiness, детерминированной категории рекомендации и briefing output.
+Whatte — активный прототип. Основной backend pipeline работает end-to-end от Strava load, activity response и subjective feeling до readiness, детерминированной рекомендации и briefing output. HealthKit ingestion и iOS-клиент выведены из эксплуатации; сохранённые исторические данные остаются доступны только как optional physiology для соответствующей даты.
 
 Текущий recommendation layer намеренно ограничен. Он помогает принять решение на день, но пока не является полноценным тренировочным планировщиком.
 

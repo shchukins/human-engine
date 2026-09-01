@@ -15,9 +15,5 @@ __pycache__/
 # Logs
 *.log
 
-# iOS
-DerivedData/
-*.xcuserstate
-
 # Continue local workspace
 .continue/

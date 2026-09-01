@@ -19,7 +19,7 @@ Current public split:
 
 - `shchukin.de/dashboard` -> FastAPI SSR internal dashboard
 - `shchukin.de/today` -> FastAPI SSR Today surface
-- `api.shchukin.de` -> FastAPI technical API endpoints, Strava OAuth callback, Telegram webhook, HealthKit sync, `/healthz`, and API docs when enabled
+- `api.shchukin.de` -> FastAPI technical API endpoints, Strava OAuth callback, Telegram webhook, `/healthz`, and API docs when enabled
 
 Operational notes:
 

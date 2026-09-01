@@ -241,7 +241,7 @@ GET /api/v1/model/readiness-daily/{user_id}/latest
 - response includes `data_quality` derived from stored explanation payloads
 - response includes the backend-owned readiness source-data freshness contract
 - если rows отсутствуют, возвращается `404`
-- рекомендован для iOS Today screen вместо optimistic request на local today
+- используется Web Today и другими read-only surfaces
 
 ### Readiness source-data freshness contract
 
@@ -258,10 +258,9 @@ The source-data threshold is an exact user-day boundary:
 - a missing or unusable source date is missing evidence;
 - `readiness_computed_at` must exist and must not precede the target user-day.
 
-The timezone is snapshotted from the latest stored HealthKit configuration when
-readiness is recomputed. If no HealthKit timezone exists, the deterministic
-fallback is `UTC`. Inputs such as `(GMT+00:00) UTC` use the trailing IANA zone
-name. The server's local timezone is never used.
+The timezone is snapshotted from the explicit `WHATTE_TIMEZONE` configuration
+when readiness is recomputed. The default is `Europe/Moscow`; the server's
+implicit local timezone and historical HealthKit payloads are not used.
 
 States:
 

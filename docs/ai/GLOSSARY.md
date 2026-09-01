@@ -8,7 +8,7 @@
 Включает:
 
 - Strava ingestion
-- HealthKit ingestion
+- preserved historical HealthKit storage (collection retired)
 - raw payload storage
 - нормализацию source data
 
@@ -80,7 +80,9 @@
 ### Recovery State
 Состояние, описывающее восстановление организма независимо от load state.
 
-В текущем backend реализовано в `health_recovery_daily`.
+В текущем backend historical recovery materialized в `health_recovery_daily`.
+Новые HealthKit records не собираются; exact-date historical row остаётся
+optional physiology input.
 
 Recovery не заменяет fatigue, а корректирует readiness поверх load model.
 

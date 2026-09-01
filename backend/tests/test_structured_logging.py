@@ -42,13 +42,13 @@ def test_log_event_emits_json_payload():
 
     log_event(
         logger,
-        "healthkit_full_sync_started",
+        "readiness_recompute_started",
         user_id="user-1",
         counts={"sleep": 2, "hrv": 3, "rhr": 1},
     )
 
     payload = json.loads(messages[0])
 
-    assert payload["event"] == "healthkit_full_sync_started"
+    assert payload["event"] == "readiness_recompute_started"
     assert payload["user_id"] == "user-1"
     assert payload["counts"] == {"sleep": 2, "hrv": 3, "rhr": 1}

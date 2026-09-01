@@ -134,11 +134,11 @@ Per-activity ledger для идемпотентной доставки `training
 
 ### 4.5 `healthkit_ingest_raw`
 
-Сырой payload HealthKit sync.
+Сохранённый сырой payload retired HealthKit sync path.
 
 Назначение:
 
-- воспроизводимость HealthKit ingest
+- воспроизводимость исторического HealthKit ingest
 - исходный источник для нормализации health data
 
 ---
@@ -506,8 +506,8 @@ Delivery-state журнал для at-most-once уведомлений.
 
 Для `daily_readiness` уникальность
 `(user_id, notification_type, notification_date)` остается дневным atomic claim
-между HealthKit event trigger и fallback worker, но больше не означает, что row
-навсегда блокирует обновления. Под `select ... for update` delivery layer
+между повторными worker attempts, но больше не означает, что row навсегда
+блокирует обновления. Под `select ... for update` delivery layer
 сравнивает `recovery_date`, `freshness_status` и SHA-256
 `content_fingerprint`. Полный внешний send/edit lifecycle дополнительно
 сериализуется PostgreSQL advisory lock по пользователю и дате briefing.
@@ -522,8 +522,8 @@ Delivery-state журнал для at-most-once уведомлений.
 - `failed` — первичная доставка не состоялась и может быть безопасно повторена.
 
 Старые rows не удаляются. При успешной отправке сохраняются Telegram
-`chat_id/message_id`, чтобы stale briefing можно было заменить после fresh
-HealthKit sync. `payload_json` остается диагностическим снимком текста и
+`chat_id/message_id`, чтобы изменившийся briefing можно было обновить.
+`payload_json` остается диагностическим снимком текста и
 freshness metadata.
 
 Этот журнал относится к delivery layer и не влияет на recovery, readiness или

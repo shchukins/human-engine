@@ -18,7 +18,7 @@ from backend.services.notification_service import (
     describe_readiness,
     describe_freshness_trend,
     describe_training_impact,
-    get_healthkit_data_freshness,
+    get_physiology_data_freshness,
     recommend_training,
     notify_training_processed,
     send_daily_readiness,
@@ -289,8 +289,8 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
     assert message == (
         "WHATTE · Today\n\n"
         "Дата briefing: 2026-04-17\n"
-        "Дата recovery-данных: 2026-04-17\n"
-        "Данные HealthKit: отсутствуют\n\n"
+        "Дата physiology-данных: 2026-04-17\n"
+        "Physiology: unavailable (optional)\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
@@ -335,6 +335,9 @@ class _FakeDailyReadinessCursor:
                         "hrv_score": 42.1,
                         "rhr_score": 49.5,
                     },
+                    "source_timestamps": {
+                        "recovery_source_at": "2026-04-17",
+                    },
                 },
             )
         raise AssertionError(f"unexpected fetchone query: {self._last_query}")
@@ -368,14 +371,14 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
 
     message = build_daily_readiness_message(
         user_id="user-1",
-        data_freshness={"state": "fresh"},
+        data_freshness={"state": "fresh", "provider": "healthkit"},
     )
 
     assert message == (
         "WHATTE · Today\n\n"
         "Дата briefing: 2026-04-17\n"
-        "Дата recovery-данных: 2026-04-17\n"
-        "Данные HealthKit: свежие\n\n"
+        "Дата physiology-данных: 2026-04-17\n"
+        "Physiology: available · historical\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
@@ -406,12 +409,12 @@ def test_build_readiness_briefing_message_marks_stale_data():
         data_freshness={"state": "stale"},
     )
 
-    assert "Данные HealthKit: устаревшие" in message
+    assert "Physiology: unavailable for this date" in message
 
 
 class _FakeFreshnessCursor:
-    def __init__(self, recovery_row, sync_row):
-        self.rows = iter((recovery_row, sync_row))
+    def __init__(self, recovery_row):
+        self.recovery_row = recovery_row
 
     def __enter__(self):
         return self
@@ -423,41 +426,35 @@ class _FakeFreshnessCursor:
         return None
 
     def fetchone(self):
-        return next(self.rows)
+        return self.recovery_row
 
 
 @pytest.mark.parametrize(
     ("recovery_row", "expected_state"),
     [
         ((date(2026, 4, 17), "recovery-updated-at"), "fresh"),
-        ((date(2026, 4, 16), "recovery-updated-at"), "fresh"),
-        ((date(2026, 4, 15), "recovery-updated-at"), "stale"),
         (None, "missing"),
     ],
 )
-def test_get_healthkit_data_freshness_classifies_recovery_date(
+def test_get_physiology_data_freshness_uses_exact_date_only(
     monkeypatch,
     recovery_row,
     expected_state,
 ):
-    cursor = _FakeFreshnessCursor(
-        recovery_row=recovery_row,
-        sync_row=("sync-generated-at", "sync-received-at"),
-    )
+    cursor = _FakeFreshnessCursor(recovery_row=recovery_row)
     connection = _FakeDailyReadinessConn(cursor)
     monkeypatch.setattr(
         "backend.services.notification_service.get_conn",
         lambda: connection,
     )
 
-    result = get_healthkit_data_freshness(
+    result = get_physiology_data_freshness(
         user_id="user-1",
         for_date=date(2026, 4, 17),
     )
 
     assert result["state"] == expected_state
-    assert result["last_sync_generated_at"] == "sync-generated-at"
-    assert result["last_sync_received_at"] == "sync-received-at"
+    assert result["provider"] == ("healthkit" if recovery_row else None)
 
 
 def test_send_daily_readiness_claim_prevents_duplicate(monkeypatch):

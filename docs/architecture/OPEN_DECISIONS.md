@@ -59,8 +59,8 @@ partially resolved
 Базовый feature / derived layer уже частично реализован:
 
 - `daily_training_load`
-- HealthKit normalized tables
-- `health_recovery_daily`
+- preserved historical HealthKit normalized tables
+- historical `health_recovery_daily`
 
 Открытым остается вопрос расширения feature layer и его границ.
 
@@ -126,10 +126,12 @@ open
 
 ### Context
 
-Сейчас уже используются:
+Сейчас активно используются:
 
 - Strava
-- HealthKit
+- Web/Telegram subjective feedback
+
+HealthKit сохранён только как historical exact-date physiology; ingestion retired.
 
 Следующий уровень сложности:
 
@@ -141,8 +143,8 @@ open
 
 ### Options
 
-1. Strava + HealthKit как основная схема
-2. Добавление новых источников с явным source priority
+1. Strava + subjective feedback как основная схема
+2. Optional physiology provider с явным source priority
 3. Multi-source aggregation с правилами консолидации
 
 ---

@@ -7,10 +7,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from backend.config import settings
 from backend.core.logging import log_event
 from backend.db import get_conn
 from backend.services.activity_response_service import load_recent_response_context
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.physiology_signal import load_physiology_signal
 from backend.services.readiness_composition import (
     READINESS_MODEL_VERSION,
     compose_readiness,
@@ -79,18 +81,11 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                 )
                 load_row = cur.fetchone()
 
-                cur.execute(
-                    """
-                    select
-                        recovery_score_simple,
-                        recovery_explanation_json
-                    from health_recovery_daily
-                    where user_id = %s
-                      and date = %s;
-                    """,
-                    (user_id, target_date),
+                physiology = load_physiology_signal(
+                    cur,
+                    user_id=user_id,
+                    target_date=target_date,
                 )
-                recovery_row = cur.fetchone()
 
                 cur.execute(
                     """
@@ -125,12 +120,9 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     else None
                 )
                 freshness = load_row[6] if load_row else None
-                recovery_score_simple = recovery_row[0] if recovery_row else None
-                recovery_explanation = recovery_row[1] if recovery_row else None
+                recovery_score_simple = physiology["score"]
+                recovery_explanation = physiology["explanation"]
                 feeling_score = feeling_row[0] if feeling_row else None
-
-                if isinstance(recovery_explanation, str):
-                    recovery_explanation = json.loads(recovery_explanation)
 
                 if freshness is None and recovery_score_simple is None and feeling_score is None:
                     raise HTTPException(
@@ -164,19 +156,6 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
 
                 status_text = _describe_readiness_status(readiness_score)
 
-                cur.execute(
-                    """
-                    select timezone
-                    from healthkit_ingest_raw
-                    where user_id = %s
-                    order by received_at desc
-                    limit 1;
-                    """,
-                    (user_id,),
-                )
-                timezone_row = cur.fetchone()
-                source_timezone = timezone_row[0] if timezone_row else "UTC"
-
                 explanation_json = {
                     "fallback_mode": fallback_mode,
                     "freshness": freshness,
@@ -188,11 +167,20 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                     "model": composition["model"],
                     "formula": composition["model"]["formula_version"],
                     "recovery_explanation": recovery_explanation,
+                    "physiology_source": {
+                        "availability": physiology["availability"],
+                        "provider": physiology["provider"],
+                        "collection_status": (
+                            "historical"
+                            if physiology["availability"] == "available"
+                            else "retired"
+                        ),
+                    },
                     "source_timestamps": {
                         # These are source-row dates, not fabricated timestamps.
-                        "recovery_source_at": target_date if recovery_row else None,
+                        "recovery_source_at": physiology["source_date"],
                         "training_source_at": target_date if load_row else None,
-                        "timezone": source_timezone,
+                        "timezone": settings.whatte_timezone,
                     },
                 }
 

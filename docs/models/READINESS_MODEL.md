@@ -332,8 +332,7 @@ At recomputation time, `explanation_json.source_timestamps` snapshots:
 
 - `recovery_source_at`: the `health_recovery_daily.date` row used, or `null`;
 - `training_source_at`: the `load_state_daily_v2.date` row used, or `null`;
-- `timezone`: the latest stored HealthKit timezone, with explicit `UTC`
-  fallback when unavailable.
+- `timezone`: the explicit `WHATTE_TIMEZONE` configuration.
 
 The readiness formula, weights, fallback modes, score zones, recommendation
 thresholds, and `good_day_probability` are unchanged. Source freshness only
@@ -350,14 +349,15 @@ inferred from either field.
 
 ### 7.2 Missing recovery inputs
 
-Recovery layer обрабатывает частично неполные HealthKit данные до readiness:
+Historical recovery replay обрабатывает частично неполные HealthKit данные до readiness:
 
 - если нет HRV за день или baseline HRV, `hrv_score = 50.0`
 - если нет resting HR за день или baseline resting HR, `rhr_score = 50.0`
 - если нет sleep, `sleep_score = 50.0`
 - если нет вообще health data, recovery recompute возвращает `404`
 
-Readiness не меняет эту логику. Она получает уже рассчитанный `recovery_score_simple`.
+Production collection retired. Readiness не меняет historical recovery logic и
+получает уже рассчитанный exact-date `recovery_score_simple`, когда row существует.
 
 ### 7.3 `readiness_daily.explanation_json`
 
@@ -461,15 +461,15 @@ Current gap for invariant coverage:
 
 Daily Telegram notification в текущем backend строится от `readiness_daily`, а не от legacy freshness-only summary.
 
-Delivery не меняет readiness formula. После успешного HealthKit pipeline backend
-отправляет briefing, если sync содержит recovery-сигнал за локальный текущий
-день. Fixed-time worker остается fallback-only.
+Delivery не меняет readiness formula. Scheduled worker сначала материализует
+daily state за configured local date, затем отправляет briefing.
 
-Notification metadata классифицирует HealthKit recovery input:
+Notification metadata классифицирует optional physiology input:
 
-- `fresh`: `health_recovery_daily.date` соответствует дате briefing
-- `stale`: доступен только recovery за более раннюю дату
-- `missing`: recovery row отсутствует
+- `fresh`: historical `health_recovery_daily.date` точно соответствует дате briefing
+- `missing`: physiology row отсутствует; это штатный optional state
+
+Более старый historical recovery никогда не переносится на текущий день.
 
 Freshness выводится в пользовательском сообщении, а один atomic daily claim в
 `notification_log` предотвращает повторную отправку. Это delivery metadata; оно
@@ -553,8 +553,8 @@ Current state:
 
 Если результат кажется неверным, проверять:
 
-1. входные данные HealthKit и training load
-2. расчет `health_recovery_daily`
+1. training load, response и feeling inputs
+2. exact-date historical physiology availability, если она ожидается
 3. расчет `load_state_daily_v2`
 4. нормализацию `freshness`
 5. формирование `readiness_score_raw`
@@ -580,9 +580,9 @@ Current state:
 
 Сценарий readiness считается завершенным для Model V2 baseline, когда:
 
-- HealthKit full-sync пересчитывает `health_recovery_daily` для affected dates
-- `load_state_daily_v2` дотягивается минимум до latest recovery date
-- `readiness_daily` создается или обновляется для affected dates
-- `readiness_daily.explanation_json` содержит `recovery_explanation`
+- `load_state_daily_v2` дотягивается до явной target date без physiology rows
+- `readiness_daily` создается или обновляется для target date
+- missing physiology публикуется как `unavailable`, а не как отрицательный signal
+- exact-date historical physiology продолжает обогащать соответствующую дату
 - при доступном load-контуре `freshness` не является `null`
 - API не падает на частично неполных данных и использует зафиксированные fallback-режимы

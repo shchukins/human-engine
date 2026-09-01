@@ -22,21 +22,19 @@ Whatte построен как pipeline:
 Высокоуровневый поток:
 
 ```text
-HealthKit / Strava
+Strava + Web/Telegram feedback
 ↓
 ingestion
 ↓
 normalized storage
 ↓
-load + recovery
+load + freshness + response + feeling
 ↓
-readiness
+readiness (+ exact-date historical physiology when available)
 ↓
 decision
 ↓
-API
-↓
-iOS
+API / Web Today / Telegram
 ```
 
 ---
@@ -60,7 +58,7 @@ PostgreSQL
 - инфраструктура self-hosted
 - `shchukin.de` используется для web surfaces
 - `shchukin.de/dashboard` проксируется на backend как internal SSR dashboard
-- `api.shchukin.de` остается техническим API-доменом для webhook/sync/health/OAuth paths
+- `api.shchukin.de` остается техническим API-доменом для Strava webhook, health, OAuth, and model paths
 - старый home-server deployment / watchdog monitoring является legacy context, а не текущей основной production-схемой
 
 ---
@@ -137,8 +135,8 @@ PostgreSQL.
 Выполняет:
 
 - загрузку активностей из Strava
-- обработку HealthKit sync payloads
-- пересчет recovery и readiness
+- scheduled local-day load/readiness recompute
+- отправку daily readiness briefing
 
 ---
 
@@ -191,27 +189,21 @@ daily_training_load
 
 ---
 
-### 5.2 HealthKit full-sync pipeline
+### 5.2 Daily readiness pipeline
 
 ```text
-HealthKit iOS
+configured local target date
 ↓
-POST /api/v1/healthkit/full-sync/{user_id}
+load_state_daily_v2 recompute through target date
 ↓
-healthkit_ingest_raw
-↓
-latest raw -> normalized health tables
-↓
-health_recovery_daily recompute
-↓
-load_state_daily_v2 recompute
+response + feeling + optional exact-date historical physiology
 ↓
 readiness_daily recompute
 ↓
-notification_service
+decision_engine -> Web Today / Telegram
 ```
 
-Normalized health tables:
+Preserved historical tables:
 
 - `health_sleep_night`
 - `health_resting_hr_daily`
@@ -220,7 +212,9 @@ Normalized health tables:
 
 Свойства:
 
-- recompute deterministic
+- HealthKit collection routes and the iOS client are retired
+- historical rows are not deleted or carried forward to a later date
+- recompute remains deterministic
 - `readiness_daily` materialized как daily layer
 - readiness history читается из `readiness_daily` без отдельного пересчета
 - на последних датах readiness должен быть непрерывным, без gaps
@@ -232,7 +226,7 @@ Normalized health tables:
 ### 6.1 Data layer (implemented)
 
 - Strava ingestion
-- HealthKit ingestion
+- Web/Telegram feedback ingestion
 - raw storage
 
 ---
@@ -240,8 +234,8 @@ Normalized health tables:
 ### 6.2 Normalization / processing layer (implemented)
 
 - `daily_training_load`
-- HealthKit normalized tables
-- recovery aggregation
+- preserved historical HealthKit normalized tables
+- historical recovery aggregation for deliberate replay
 
 Этот слой реализован в текущем backend.
 
@@ -262,7 +256,7 @@ Normalized health tables:
 - расчет идет по непрерывной календарной оси
 - в дни без тренировок используется `tss = 0`
 - `fatigue_total` является взвешенной смесью fast/slow fatigue
-- readiness считается из load state и recovery state, а не только из freshness
+- readiness composes freshness, response, feeling, and optional exact-date physiology
 - readiness является финальной агрегированной метрикой текущего state layer
 - `good_day_probability` хранится как отдельный probability layer
 
@@ -288,23 +282,13 @@ Current mapping:
 Current flow:
 
 ```text
-HealthKit
-↓
-ingestion
-↓
-normalized health tables
-↓
-health_recovery_daily
-↓
-load_state_daily_v2
+Strava load + response + feeling
 ↓
 readiness_daily
 ↓
 decision_engine
 ↓
-readiness API
-↓
-iOS Today screen
+readiness API / Web Today / Telegram
 ```
 
 Важно:
@@ -360,8 +344,6 @@ This layer is intentionally append-only in meaning:
 
 - `api_request_started`
 - `api_request_finished`
-- `healthkit_full_sync_started`
-- `healthkit_full_sync_finished`
 - `readiness_recompute_started`
 - `readiness_recompute_finished`
 
@@ -447,13 +429,14 @@ Operational monitoring hierarchy:
 Текущая product-level схема:
 
 ```text
-LoadState + RecoveryState -> Readiness -> GoodDayProbability
+LoadState + Response + Feeling + optional Physiology -> Readiness -> GoodDayProbability
 ```
 
 Где:
 
 - `LoadState` описывает тренировочную нагрузку
-- `RecoveryState` описывает восстановление организма
+- `Response` и `Feeling` дают wearable-independent recovery evidence
+- optional historical `Physiology` обогащает только совпадающую дату
 - `Readiness` является отдельным слоем, а не полем внутри load state
 
 ---
@@ -462,7 +445,7 @@ LoadState + RecoveryState -> Readiness -> GoodDayProbability
 
 Текущее состояние:
 
-- ingestion pipelines
+- Strava and feedback ingestion pipelines
 - raw storage
 - normalized health layer
 - recovery layer
@@ -470,8 +453,9 @@ LoadState + RecoveryState -> Readiness -> GoodDayProbability
 - readiness baseline
 - decision layer
 - readiness API
-- iOS Today screen
-- HealthKit auto sync
+- Web Today surface
+- scheduled daily readiness orchestration
+- preserved historical HealthKit storage with no active collection
 
 ---
 

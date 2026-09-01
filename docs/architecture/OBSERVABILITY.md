@@ -89,12 +89,6 @@ API:
 - `api_request_started`
 - `api_request_finished`
 
-HealthKit:
-
-- `healthkit_full_sync_started`
-- `healthkit_full_sync_finished`
-- `healthkit_payload_processed`
-
 Readiness:
 
 - `readiness_recompute_started`
@@ -153,7 +147,6 @@ Panels:
 - event volume: shows how many structured events are produced over time; answers "is the system active?"
 - durations: shows request or job durations; answers "what became slower?"
 - errors: shows `event="error"` records; answers "what failed and where?"
-- HealthKit sync: shows full-sync start/finish and payload processing; answers "did sync run and complete?"
 - readiness recompute: shows readiness recompute events; answers "was readiness recalculated?"
 - pipeline trace: shows ordered events for a user, request, or job; answers "what happened in this processing path?"
 

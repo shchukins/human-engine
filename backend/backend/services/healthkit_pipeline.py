@@ -1,94 +1,23 @@
+"""Legacy deterministic replay for already stored HealthKit history.
+
+The application exposes no HealthKit ingestion routes. This compatibility
+module remains available only for deliberate offline historical maintenance.
+"""
+
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from backend.config import settings
 from backend.core.logging import log_event
 from backend.schemas.healthkit import HealthSyncPayload
 from backend.services.health_recovery_daily import recompute_health_recovery_daily_for_date
 from backend.services.healthkit_ingest import save_healthkit_ingest_raw
 from backend.services.healthkit_processing import process_latest_healthkit_raw
 from backend.services.load_state_v2 import recompute_load_state_daily_v2
-from backend.services.notification_service import send_daily_readiness
 from backend.services.readiness_daily import recompute_readiness_daily_for_date
 
 logger = logging.getLogger(__name__)
-
-
-def _recovery_dates(payload: HealthSyncPayload) -> set[str]:
-    dates = {str(item.wakeDate) for item in payload.sleepNights}
-    dates.update(str(item.date) for item in payload.restingHeartRateDaily)
-    dates.update(item.startAt.date().isoformat() for item in payload.hrvSamples)
-    return dates
-
-
-def _local_today(timezone_name: str) -> str:
-    try:
-        local_timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        local_timezone = timezone.utc
-    return datetime.now(timezone.utc).astimezone(local_timezone).date().isoformat()
-
-
-def _successful_sync_at() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _send_fresh_morning_briefing(
-    *,
-    user_id: str,
-    payload: HealthSyncPayload,
-) -> None:
-    notification_date = date.fromisoformat(_local_today(payload.timezone))
-    eligible_recovery_dates = {
-        notification_date,
-        notification_date - timedelta(days=1),
-    }
-    affected_recovery_dates = {
-        date.fromisoformat(value) for value in _recovery_dates(payload)
-    }
-    eligible_affected_dates = affected_recovery_dates & eligible_recovery_dates
-
-    if user_id != settings.daily_readiness_user_id or not eligible_affected_dates:
-        return
-
-    recovery_date = max(eligible_affected_dates)
-    data_freshness = {
-        "state": "fresh",
-        "recovery_date": recovery_date.isoformat(),
-        "last_successful_sync_at": _successful_sync_at(),
-    }
-    try:
-        sent = send_daily_readiness(
-            user_id=user_id,
-            notification_date=notification_date,
-            recovery_date=recovery_date,
-            data_freshness=data_freshness,
-        )
-        log_event(
-            logger,
-            "daily_readiness_fresh_sync_triggered",
-            user_id=user_id,
-            notification_date=notification_date.isoformat(),
-            recovery_date=recovery_date.isoformat(),
-            sent=sent,
-        )
-    except Exception as error:
-        # Notification delivery is auxiliary: a Telegram failure must not turn
-        # an already successful deterministic HealthKit pipeline into a failed sync.
-        log_event(
-            logger,
-            "daily_readiness_fresh_sync_failed",
-            level=logging.ERROR,
-            user_id=user_id,
-            notification_date=notification_date.isoformat(),
-            recovery_date=recovery_date.isoformat(),
-            error_type=type(error).__name__,
-            error=str(error),
-        )
 
 
 def _collect_affected_dates(payload: HealthSyncPayload) -> list[str]:
@@ -172,7 +101,10 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
         recovery_results.append(recovery_result)
 
     # 5. Recompute load state after recovery so freshness is available to readiness.
-    load_result = recompute_load_state_daily_v2(user_id=user_id)
+    load_result = recompute_load_state_daily_v2(
+        user_id=user_id,
+        through_date=max_affected_date,
+    )
 
     # 6. Recompute readiness for all affected dates
     for target_date in affected_dates:
@@ -198,8 +130,6 @@ def ingest_and_process_healthkit_payload(user_id: str, payload: HealthSyncPayloa
         rhr_count=len(payload.restingHeartRateDaily),
         readiness_days_recomputed=len(readiness_results),
     )
-    _send_fresh_morning_briefing(user_id=user_id, payload=payload)
-
     return {
         "ok": True,
         "user_id": user_id,

@@ -45,19 +45,21 @@ class _FakeConn:
         self.committed = True
 
 
-def test_recompute_load_state_daily_v2_uses_training_and_recovery_bounds(monkeypatch):
+def test_recompute_load_state_daily_v2_extends_training_calendar_to_target(monkeypatch):
     fake_cursor = _FakeCursor()
     fake_conn = _FakeConn(fake_cursor)
 
     monkeypatch.setattr(load_state_v2, "get_conn", lambda: fake_conn)
 
-    result = load_state_v2.recompute_load_state_daily_v2(user_id="user-1")
+    result = load_state_v2.recompute_load_state_daily_v2(
+        user_id="user-1",
+        through_date="2026-04-11",
+    )
 
     bounds_query = fake_cursor.query_log[0]
-    assert "with source_dates as" in bounds_query
     assert "from daily_training_load" in bounds_query
-    assert "union" in bounds_query
-    assert "from health_recovery_daily" in bounds_query
+    assert "coalesce(%s::date, max(date))" in bounds_query
+    assert "health_recovery_daily" not in bounds_query
 
     assert result["days_processed"] == 3
     assert result["last_date"] == "2026-04-11"

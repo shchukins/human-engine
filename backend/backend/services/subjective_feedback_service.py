@@ -26,7 +26,7 @@ from backend.services.activity_response_service import (
 )
 from backend.services.decision_engine import build_recommendation
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
-from backend.services.readiness_daily import recompute_readiness_daily_for_date
+from backend.services.daily_readiness_pipeline import recompute_daily_readiness
 from backend.services.telegram_service import (
     answer_telegram_callback,
     edit_telegram_message,
@@ -1021,10 +1021,11 @@ def upsert_next_day_recovery_feedback(
     )
     # Morning feeling is a first-class current-day input. Recompute only after
     # the idempotent feedback upsert commits so every surface reads one backend-owned state.
-    result["readiness"] = recompute_readiness_daily_for_date(
+    daily_state = recompute_daily_readiness(
         user_id=user_id,
         target_date=recovery_context["target_date"],
     )
+    result["readiness"] = daily_state["readiness"]
     return result
 
 

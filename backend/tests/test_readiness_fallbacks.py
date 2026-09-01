@@ -29,7 +29,9 @@ class _FakeCursor:
         if "from load_state_daily_v2" in self._last_query:
             return self._load_row
         if "from health_recovery_daily" in self._last_query:
-            return self._recovery_row
+            if self._recovery_row is None:
+                return None
+            return (*self._recovery_row, "recovery-updated-at")
         if "from activity_subjective_feedback" in self._last_query:
             return self._feeling_row
         return None
@@ -94,11 +96,15 @@ def test_recompute_readiness_daily_uses_full_formula_and_propagates_recovery_exp
     assert explanation_json["freshness"] == 5.0
     assert explanation_json["freshness_norm"] == 55.0
     assert explanation_json["recovery_score_simple"] == 70.0
-    assert explanation_json["recovery_explanation"] == recovery_explanation
+    assert explanation_json["recovery_explanation"] == {
+        **recovery_explanation,
+        "provider": "healthkit",
+        "collection_status": "historical",
+    }
     assert explanation_json["source_timestamps"] == {
         "recovery_source_at": "2026-04-16",
         "training_source_at": "2026-04-16",
-        "timezone": "UTC",
+        "timezone": "Europe/Moscow",
     }
 
     assert len(fake_cursor.insert_params) == 1
@@ -124,7 +130,11 @@ def test_recompute_readiness_daily_uses_recovery_only_fallback(monkeypatch):
     assert explanation_json["freshness"] is None
     assert explanation_json["freshness_norm"] is None
     assert explanation_json["recovery_score_simple"] == 66.4
-    assert explanation_json["recovery_explanation"] == recovery_explanation
+    assert explanation_json["recovery_explanation"] == {
+        **recovery_explanation,
+        "provider": "healthkit",
+        "collection_status": "historical",
+    }
 
 
 def test_recompute_readiness_daily_uses_load_only_fallback(monkeypatch):

@@ -28,7 +28,9 @@ class _FakeReadinessCursor:
         if "from load_state_daily_v2" in self._last_query:
             return self._load_row
         if "from health_recovery_daily" in self._last_query:
-            return self._recovery_row
+            if self._recovery_row is None:
+                return None
+            return (*self._recovery_row, "recovery-updated-at")
         if "from activity_subjective_feedback" in self._last_query:
             return self._feeling_row
         return None

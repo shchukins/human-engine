@@ -1,10 +1,12 @@
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from backend.config import settings
 from backend.core.logging import configure_logging, log_event
 from backend.services.ingest_service import process_one_strava_ingest_job
+from backend.services.daily_readiness_pipeline import recompute_daily_readiness
 from backend.services.notification_service import send_daily_readiness
 from backend.services.subjective_feedback_service import schedule_next_day_recovery_prompts
 
@@ -16,9 +18,17 @@ DAILY_READINESS_USER_ID = settings.daily_readiness_user_id
 DAILY_READINESS_FALLBACK_HOUR_UTC = settings.daily_readiness_fallback_hour_utc
 DAILY_READINESS_FALLBACK_MINUTE_UTC = settings.daily_readiness_fallback_minute_utc
 NEXT_DAY_RECOVERY_PROMPT_HOUR_UTC = settings.next_day_recovery_prompt_hour_utc
+WHATTE_TIMEZONE = settings.whatte_timezone
+
+_last_daily_readiness_date: date | None = None
+
+
+def _local_date(now: datetime) -> date:
+    return now.astimezone(ZoneInfo(WHATTE_TIMEZONE)).date()
 
 
 def maybe_send_daily_readiness() -> None:
+    global _last_daily_readiness_date
     now = datetime.now(timezone.utc)
 
     if (
@@ -27,10 +37,19 @@ def maybe_send_daily_readiness() -> None:
     ):
         return
 
+    notification_date = _local_date(now)
+    if _last_daily_readiness_date == notification_date:
+        return
+
+    recompute_daily_readiness(
+        user_id=DAILY_READINESS_USER_ID,
+        target_date=notification_date.isoformat(),
+    )
     sent = send_daily_readiness(
         DAILY_READINESS_USER_ID,
-        notification_date=now.date(),
+        notification_date=notification_date,
     )
+    _last_daily_readiness_date = notification_date
 
     if sent:
         log_event(
@@ -46,7 +65,7 @@ def maybe_schedule_next_day_recovery_prompts() -> None:
     if now.hour != NEXT_DAY_RECOVERY_PROMPT_HOUR_UTC:
         return
 
-    result = schedule_next_day_recovery_prompts(target_date=now.date())
+    result = schedule_next_day_recovery_prompts(target_date=_local_date(now))
     log_event(
         logger,
         "next_day_recovery_prompt_scheduler_ran",

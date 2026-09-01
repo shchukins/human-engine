@@ -190,7 +190,7 @@ RAG рассматривается как:
 
 Система считается готовой к следующему этапу, когда:
 
-- HealthKit full-sync стабильно проходит end-to-end
+- wearable-independent daily loop стабильно проходит end-to-end
 - load / recovery / readiness layers детерминированы и согласованы
 - probability layer явно описан как baseline mapping
 - документация отражает реальное состояние системы
