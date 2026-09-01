@@ -36,6 +36,10 @@ def test_daily_readiness_extends_load_calendar_before_readiness(monkeypatch):
 def test_healthkit_ingestion_routes_are_not_exposed():
     from backend.app import app
 
-    route_paths = {route.path for route in app.routes}
+    route_paths = {
+        path
+        for route in app.routes
+        if (path := getattr(route, "path", None)) is not None
+    }
 
     assert not any(path.startswith("/api/v1/healthkit/") for path in route_paths)
