@@ -25,6 +25,7 @@ from backend.services.activity_response_service import (
     recompute_readiness_for_response_window,
 )
 from backend.services.decision_engine import build_recommendation
+from backend.services.decision_context_snapshot import capture_decision_context_snapshot
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.daily_readiness_pipeline import recompute_daily_readiness
 from backend.services.telegram_service import (
@@ -995,6 +996,15 @@ def upsert_next_day_recovery_feedback(
     feedback_schema_version: str = FEEDBACK_SCHEMA_VERSION_EXTENSIBLE,
 ) -> dict[str, Any]:
     recovery_context = _load_recovery_prompt_context(user_id, target_date)
+    snapshot_reference = (
+        f"next_day_recovery:{user_id}:{recovery_context['target_date']}"
+    )
+    capture_decision_context_snapshot(
+        user_id=user_id,
+        snapshot_date=recovery_context["target_date"],
+        event_type="recovery_checkin_before",
+        reference_key=snapshot_reference,
+    )
     feedback_payload = {
         "target_date": recovery_context["target_date"],
         "previous_date": recovery_context["previous_date"],
@@ -1024,6 +1034,12 @@ def upsert_next_day_recovery_feedback(
     daily_state = recompute_daily_readiness(
         user_id=user_id,
         target_date=recovery_context["target_date"],
+    )
+    capture_decision_context_snapshot(
+        user_id=user_id,
+        snapshot_date=recovery_context["target_date"],
+        event_type="recovery_checkin_after",
+        reference_key=snapshot_reference,
     )
     result["readiness"] = daily_state["readiness"]
     return result

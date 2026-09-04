@@ -31,6 +31,10 @@ def _disable_daily_readiness_delivery_lock(monkeypatch):
         "backend.services.notification_service._daily_readiness_delivery_lock",
         lambda user_id, notification_date: nullcontext(),
     )
+    monkeypatch.setattr(
+        "backend.services.notification_service.capture_decision_context_snapshot",
+        lambda **kwargs: {"inserted": True, **kwargs},
+    )
 
 def test_compute_readiness_score_none():
     assert compute_readiness_score(None) is None
@@ -556,6 +560,11 @@ def test_send_daily_readiness_keeps_claim_after_successful_delivery(monkeypatch)
 def test_no_briefing_fresh_sync_sends_message(monkeypatch):
     sent_messages = []
     marked = []
+    snapshots = []
+    monkeypatch.setattr(
+        "backend.services.notification_service.capture_decision_context_snapshot",
+        lambda **kwargs: snapshots.append(kwargs),
+    )
     monkeypatch.setattr(
         "backend.services.notification_service.build_daily_readiness_message",
         lambda **kwargs: "fresh briefing",
@@ -585,6 +594,12 @@ def test_no_briefing_fresh_sync_sends_message(monkeypatch):
     assert marked[0]["delivery_status"] == "sent"
     assert marked[0]["telegram_chat_id"] == 202
     assert marked[0]["telegram_message_id"] == 101
+    assert snapshots == [{
+        "user_id": "user-1",
+        "snapshot_date": date(2026, 8, 2),
+        "event_type": "daily_readiness_delivery",
+        "reference_key": "daily_readiness:user-1:2026-08-02",
+    }]
 
 
 def test_stale_fallback_then_fresh_sync_edits_existing_message(monkeypatch):

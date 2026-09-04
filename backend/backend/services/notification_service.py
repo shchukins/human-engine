@@ -17,6 +17,7 @@ from backend.services.activity_deduplication_service import (
 )
 from backend.services.activity_load_service import resolve_activity_load
 from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.decision_context_snapshot import capture_decision_context_snapshot
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.subjective_feedback_service import send_post_ride_rpe_request
 from backend.services.telegram_service import (
@@ -1279,6 +1280,12 @@ def _send_daily_readiness_locked(
             telegram_chat_id=telegram_chat_id or settings.telegram_chat_id,
             telegram_message_id=telegram_message_id,
             data_freshness=data_freshness,
+        )
+        capture_decision_context_snapshot(
+            user_id=user_id,
+            snapshot_date=notification_date,
+            event_type="daily_readiness_delivery",
+            reference_key=f"daily_readiness:{user_id}:{notification_date.isoformat()}",
         )
     except Exception:
         # Once Telegram accepted the message, keep the claim even if persisting

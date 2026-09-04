@@ -616,10 +616,13 @@ activity_subjective_feedback
 
 - субъективный feedback хранится отдельно от deterministic model state
 - snapshot в `context_json` фиксирует состояние модели на момент ответа
-- post-ride RPE не меняет upstream readiness или load tables до #118
+- post-ride RPE запускает versioned response/readiness recompute после commit
 - date-level `next_day_recovery` читается новой readiness composition как
   explicit `feeling` signal; upsert запускает deterministic recompute, но не
   переписывает feedback snapshot или legacy readiness version
+- `decision_context_snapshot` append-only фиксирует решение в точках доставки,
+  до recovery check-in и после его deterministic recompute; таблица не является
+  входом readiness или recommendation
 
 ---
 

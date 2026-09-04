@@ -302,9 +302,10 @@ readiness API / Web Today / Telegram
 
 ### 6.5 Evaluation / calibration layer (implemented as storage, not as model loop)
 
-Current table:
+Current tables:
 
 - `activity_subjective_feedback`
+- `decision_context_snapshot`
 
 Role:
 
@@ -317,6 +318,8 @@ Properties:
 - does not modify deterministic load / recovery / readiness logic
 - supports both activity-level and date-level feedback
 - uses normalized fields for queries, extensible payload for type-specific context, and `context_json` for historical model snapshots
+- preserves delivery and recovery-check-in decision boundaries as append-only,
+  idempotent snapshots for pilot reporting and later calibration joins
 - remains outside the core state calculation path
 
 High-level relationship:

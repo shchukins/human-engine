@@ -284,6 +284,7 @@ Operational monitoring status:
 - next-day recovery prompt
 - `activity_subjective_feedback`
 - `subjective_feedback_prompt_log`
+- `decision_context_snapshot` для append-only delivery/check-in context
 
 Важно:
 

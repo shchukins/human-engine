@@ -205,9 +205,10 @@ synthetic aggregate response score.
 
 ### 8. Subjective feedback layer
 
-Реализована таблица:
+Реализованы таблицы:
 
 - `activity_subjective_feedback`
+- `decision_context_snapshot`
 
 Текущий scope:
 
@@ -224,6 +225,7 @@ synthetic aggregate response score.
 - `feedback_payload` хранит feedback-type-specific детали без раздувания core schema
 - `context_json` хранит readiness / recommendation snapshot на момент ответа
 - snapshot сохраняется исторически для later calibration, а не пересчитывается на чтении
+- delivery и recovery check-in boundaries сохраняются append-only для pilot report
 
 Важно:
 

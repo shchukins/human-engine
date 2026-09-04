@@ -227,6 +227,7 @@ Current storage examples by layer:
 - Feedback / evaluation:
   - `activity_subjective_feedback`
   - `subjective_feedback_prompt_log`
+  - `decision_context_snapshot`
 
 Design intent:
 

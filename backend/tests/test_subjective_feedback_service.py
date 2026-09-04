@@ -20,6 +20,11 @@ def _stub_response_metrics_recompute(monkeypatch):
         "recompute_readiness_for_response_window",
         lambda **kwargs: [],
     )
+    monkeypatch.setattr(
+        feedback_service,
+        "capture_decision_context_snapshot",
+        lambda **kwargs: {"inserted": True, **kwargs},
+    )
 
 
 class _FakeCursor:
@@ -407,6 +412,12 @@ def test_rpe_update_recomputes_response_and_affected_readiness_dates(monkeypatch
 
 def test_upsert_next_day_recovery_feedback_uses_date_level_uniqueness(monkeypatch):
     recompute_calls = []
+    snapshot_calls = []
+    monkeypatch.setattr(
+        feedback_service,
+        "capture_decision_context_snapshot",
+        lambda **kwargs: snapshot_calls.append(kwargs),
+    )
     monkeypatch.setattr(
         feedback_service,
         "recompute_daily_readiness",
@@ -488,6 +499,10 @@ def test_upsert_next_day_recovery_feedback_uses_date_level_uniqueness(monkeypatc
     assert result["readiness"] == {"ok": True}
     assert recompute_calls == [
         {"user_id": "user-1", "target_date": "2026-05-15"}
+    ]
+    assert [call["event_type"] for call in snapshot_calls] == [
+        "recovery_checkin_before",
+        "recovery_checkin_after",
     ]
     assert write_cursor.execute_calls[0][1] == ("user-1", "2026-05-15", "next_day_recovery")
 
