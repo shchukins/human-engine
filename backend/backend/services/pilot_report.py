@@ -193,12 +193,17 @@ def build_pilot_report(
                 explanation=explanation,
             )["recommendation"]
             valid_recommendations += 1
-            if not _as_dict(families.get("physiology")).get("available", False):
+            if (
+                _as_dict(families.get("physiology")).get("availability")
+                != "available"
+            ):
                 valid_without_physiology += 1
 
         for family, counts in signal_distribution.items():
             state = _as_dict(families.get(family))
-            counts["available_days"] += int(bool(state.get("available")))
+            counts["available_days"] += int(
+                state.get("availability") == "available"
+            )
             counts["used_days"] += int(bool(state.get("used")))
 
         eligible = int(previous_activities_count or 0) > 0 or float(previous_tss or 0) > 0
