@@ -103,3 +103,32 @@ def build_readiness_briefing(
         "recommendation": recommendation,
         "reason": reason or "",
     }
+
+
+def build_persisted_readiness_briefing(
+    *,
+    readiness_score: float | None,
+    status_text: str | None,
+    explanation: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Return the decision contract for one materialized readiness output.
+
+    Input is a current-version ``readiness_daily`` row, not raw load or
+    physiology inputs. Keeping this composition here prevents delivery
+    surfaces from re-deriving readiness or recommendation behavior.
+    """
+    decision = (
+        build_recommendation(readiness_score, explanation or {})
+        if readiness_score is not None
+        else {
+            "recommendation": "insufficient_data",
+            "reason": "Readiness data is missing, so the recommendation is conservative.",
+        }
+    )
+    return build_readiness_briefing(
+        readiness_score=readiness_score,
+        status_text=status_text,
+        recommendation=decision["recommendation"],
+        reason=decision["reason"],
+        explanation=explanation,
+    )

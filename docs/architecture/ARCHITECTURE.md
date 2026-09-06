@@ -200,7 +200,7 @@ response + feeling + optional exact-date historical physiology
 ↓
 readiness_daily recompute
 ↓
-decision_engine -> Web Today / Telegram
+persisted readiness briefing contract -> Web Today / Telegram
 ```
 
 Preserved historical tables:
@@ -218,6 +218,9 @@ Preserved historical tables:
 - `readiness_daily` materialized как daily layer
 - readiness history читается из `readiness_daily` без отдельного пересчета
 - на последних датах readiness должен быть непрерывным, без gaps
+- `decision_engine.build_persisted_readiness_briefing` строит единственный
+  recommendation/reason/briefing contract из materialized current-version
+  readiness; delivery surfaces не выводят synthetic readiness из load state
 
 ---
 

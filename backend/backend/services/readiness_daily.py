@@ -11,7 +11,7 @@ from backend.config import settings
 from backend.core.logging import log_event
 from backend.db import get_conn
 from backend.services.activity_response_service import load_recent_response_context
-from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.decision_engine import build_persisted_readiness_briefing
 from backend.services.physiology_signal import load_physiology_signal
 from backend.services.readiness_composition import (
     READINESS_MODEL_VERSION,
@@ -227,15 +227,9 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
                 )
                 conn.commit()
 
-        decision = build_recommendation(
-            readiness_score=readiness_score,
-            explanation=explanation_json,
-        )
-        briefing = build_readiness_briefing(
+        decision_briefing = build_persisted_readiness_briefing(
             readiness_score=readiness_score,
             status_text=status_text,
-            recommendation=decision["recommendation"],
-            reason=decision["reason"],
             explanation=explanation_json,
         )
 
@@ -256,9 +250,8 @@ def recompute_readiness_daily_for_date(user_id: str, target_date: str) -> dict[s
             "signal_families": signal_families,
             "reason_codes": composition["reason_codes"],
             "explanation_json": explanation_json,
-            **decision,
-            **briefing,
-            "briefing_text": briefing["briefing"],
+            **decision_briefing,
+            "briefing_text": decision_briefing["briefing"],
         }
         log_event(
             logger,

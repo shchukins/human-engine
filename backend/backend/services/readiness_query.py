@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from backend.db import get_conn
-from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.decision_engine import build_persisted_readiness_briefing
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.readiness_freshness import classify_readiness_freshness
 
@@ -88,16 +88,10 @@ def _build_readiness_daily_response(
             "legacy_timestamp_snapshot_missing",
             *freshness["freshness_reason_codes"],
         ]
-    decision = build_recommendation(
-        readiness_score=readiness_score,
-        explanation=explanation_json,
-    )
-    briefing = build_readiness_briefing(
+    decision_briefing = build_persisted_readiness_briefing(
         readiness_score=readiness_score,
         status_text=status_text,
-        recommendation=decision["recommendation"],
-        reason=decision["reason"],
-        explanation=explanation_json,
+        explanation=explanation,
     )
 
     return {
@@ -116,9 +110,8 @@ def _build_readiness_daily_response(
         "readiness_computed_at": _serialize_timestamp(readiness_computed_at),
         "recovery_source_at": _serialize_timestamp(recovery_source_at),
         "training_source_at": _serialize_timestamp(training_source_at),
-        **decision,
-        **briefing,
-        "briefing_text": briefing["briefing"],
+        **decision_briefing,
+        "briefing_text": decision_briefing["briefing"],
     }
 
 

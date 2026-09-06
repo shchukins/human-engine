@@ -7,20 +7,12 @@ import pytest
 from backend.services.notification_service import (
     DailyReadinessDeliveryClaim,
     _incoming_daily_readiness_is_newer,
-    build_briefing_text,
     build_daily_readiness_message,
     build_readiness_briefing_message,
     build_training_processed_message,
-    build_readiness_comment,
     build_workout_comment,
     classify_workout_type,
-    compute_readiness_score,
-    compute_training_impact,
-    describe_readiness,
-    describe_freshness_trend,
-    describe_training_impact,
     get_physiology_data_freshness,
-    recommend_training,
     notify_training_processed,
     send_daily_readiness,
 )
@@ -37,244 +29,6 @@ def _disable_daily_readiness_delivery_lock(monkeypatch):
         lambda **kwargs: {"inserted": True, **kwargs},
     )
 
-def test_compute_readiness_score_none():
-    assert compute_readiness_score(None) is None
-
-
-def test_compute_readiness_score_low_bound():
-    assert compute_readiness_score(-10) == 0
-
-
-def test_compute_readiness_score_middle():
-    assert compute_readiness_score(0) == 50
-
-
-def test_compute_readiness_score_positive():
-    assert compute_readiness_score(5) == 75
-
-
-def test_compute_readiness_score_high_bound():
-    assert compute_readiness_score(20) == 100
-
-
-def test_describe_readiness_low():
-    assert describe_readiness(10) == "Высокая усталость"
-
-
-def test_describe_readiness_load():
-    assert describe_readiness(30) == "Нагрузка"
-
-
-def test_describe_readiness_normal():
-    assert describe_readiness(50) == "Нормальная готовность"
-
-
-def test_describe_readiness_good():
-    assert describe_readiness(70) == "Хорошая готовность"
-
-
-def test_describe_readiness_very_fresh():
-    assert describe_readiness(95) == "Очень свежий"
-
-
-def test_describe_freshness_trend_improving():
-    assert describe_freshness_trend([-8.0, -5.0, -2.0]) == "improving"
-
-
-def test_describe_freshness_trend_declining():
-    assert describe_freshness_trend([3.0, 0.0, -3.0]) == "declining"
-
-
-def test_describe_freshness_trend_stable():
-    assert describe_freshness_trend([-3.0, -2.5, -2.0]) == "stable"
-
-
-def test_describe_freshness_trend_not_enough_data():
-    assert describe_freshness_trend([1.0]) == "n/a"
-
-
-def test_recommend_training_no_data():
-    assert recommend_training(None, "n/a") == "Недостаточно данных"
-
-
-def test_recommend_training_very_low_score():
-    assert recommend_training(20, "declining") == "Отдых или очень легкое восстановление"
-
-
-def test_recommend_training_low_score_improving():
-    assert recommend_training(40, "improving") == "Легкая endurance тренировка, без интенсивности"
-
-
-def test_recommend_training_low_score_default():
-    assert recommend_training(40, "stable") == "Легкая тренировка в восстановительном темпе"
-
-
-def test_recommend_training_mid_score_declining():
-    assert recommend_training(55, "declining") == "Спокойная endurance тренировка, лучше без интервальной работы"
-
-
-def test_recommend_training_mid_score_improving():
-    assert recommend_training(55, "improving") == "Можно делать умеренную тренировку"
-
-
-def test_recommend_training_good_score_improving():
-    assert recommend_training(75, "improving") == "Хороший день для качественной тренировки"
-
-
-def test_recommend_training_good_score_declining():
-    assert recommend_training(75, "declining") == "Умеренная тренировка, но без максимальной интенсивности"
-
-
-def test_recommend_training_very_high_score_declining():
-    assert recommend_training(95, "declining") == "Можно тренироваться интенсивно, но стоит контролировать самочувствие"
-
-
-def test_recommend_training_very_high_score_default():
-    assert recommend_training(95, "stable") == "Подходит день для интенсивной тренировки"
-
-
-def test_build_briefing_text_no_data():
-    assert build_briefing_text(None, "n/a", None, None) == "Недостаточно данных для интерпретации состояния."
-
-
-def test_build_briefing_text_low_score_declining():
-    assert build_briefing_text(20, "declining", 10.0, 20.0) == "Сегодня лучше восстановиться. Свежесть низкая, тренд ухудшается."
-
-
-def test_build_briefing_text_low_score_heavy_recent_load():
-    assert build_briefing_text(20, "stable", 65.0, 40.0) == "Сегодня лучше восстановиться. Недавняя нагрузка была высокой."
-
-
-def test_build_briefing_text_low_score_default():
-    assert build_briefing_text(20, "stable", 10.0, 20.0) == "Сегодня лучше восстановиться. Организм выглядит утомленным."
-
-
-def test_build_briefing_text_mid_low_improving():
-    assert build_briefing_text(40, "improving", 10.0, 20.0) == "Состояние еще ограничено, но есть признаки восстановления."
-
-
-def test_build_briefing_text_mid_low_default():
-    assert build_briefing_text(40, "stable", 10.0, 20.0) == "Состояние умеренно утомленное. Лучше держать нагрузку легкой."
-
-
-def test_build_briefing_text_mid_declining():
-    assert build_briefing_text(55, "declining", 10.0, 20.0) == "Состояние нормальное, но тренд ухудшается. Лучше не форсировать нагрузку."
-
-
-def test_build_briefing_text_mid_improving():
-    assert build_briefing_text(55, "improving", 10.0, 20.0) == "Состояние нормальное и улучшается. Подходит день для умеренной тренировки."
-
-
-def test_build_briefing_text_mid_default():
-    assert build_briefing_text(55, "stable", 10.0, 20.0) == "Состояние нормальное. Подходит день для спокойной endurance тренировки."
-
-
-def test_build_briefing_text_good_declining():
-    assert build_briefing_text(75, "declining", 10.0, 20.0) == "Состояние хорошее, но тренд не улучшается. Лучше избегать максимальной интенсивности."
-
-
-def test_build_briefing_text_good_heavy_recent_load():
-    assert build_briefing_text(75, "stable", 65.0, 40.0) == "Состояние хорошее, но недавняя нагрузка была заметной. Контролируй самочувствие."
-
-
-def test_build_briefing_text_good_default():
-    assert build_briefing_text(75, "stable", 10.0, 20.0) == "Хороший день для качественной работы."
-
-
-def test_build_briefing_text_very_good_declining():
-    assert build_briefing_text(95, "declining", 10.0, 20.0) == "Состояние очень хорошее, но тренд снижается. Интенсивность допустима, но без лишнего риска."
-
-
-def test_build_briefing_text_very_good_default():
-    assert build_briefing_text(95, "stable", 10.0, 20.0) == "Очень хороший день для интенсивной тренировки."
-
-
-def test_build_readiness_comment_without_breakdown():
-    assert (
-        build_readiness_comment(
-            freshness=2.0,
-            recovery_score_simple=58.0,
-            recovery_explanation=None,
-        )
-        == "Восстановление выглядит стабильно, но деталей по breakdown пока недостаточно."
-    )
-
-
-def test_build_readiness_comment_sleep_is_lowest():
-    assert (
-        build_readiness_comment(
-            freshness=1.0,
-            recovery_score_simple=56.5,
-            recovery_explanation={
-                "sleep_score": 42.0,
-                "hrv_score": 61.0,
-                "rhr_score": 58.0,
-            },
-        )
-        == "Основной ограничивающий фактор сегодня — сон."
-    )
-
-
-def test_build_readiness_comment_hrv_is_lowest():
-    assert (
-        build_readiness_comment(
-            freshness=0.5,
-            recovery_score_simple=56.5,
-            recovery_explanation={
-                "sleep_score": 82.8,
-                "hrv_score": 42.1,
-                "rhr_score": 49.5,
-            },
-        )
-        == "HRV ниже baseline, восстановление выглядит неполным."
-    )
-
-
-def test_build_readiness_comment_rhr_is_lowest():
-    assert (
-        build_readiness_comment(
-            freshness=0.0,
-            recovery_score_simple=56.5,
-            recovery_explanation={
-                "sleep_score": 82.8,
-                "hrv_score": 72.0,
-                "rhr_score": 41.0,
-            },
-        )
-        == "Пульс покоя выше обычного, это может указывать на неполное восстановление."
-    )
-
-
-def test_build_readiness_comment_good_recovery_and_freshness():
-    assert (
-        build_readiness_comment(
-            freshness=6.0,
-            recovery_score_simple=78.0,
-            recovery_explanation={
-                "sleep_score": 85.0,
-                "hrv_score": 79.0,
-                "rhr_score": 77.0,
-            },
-        )
-        == "Состояние выглядит хорошим: и свежесть, и восстановление на хорошем уровне."
-    )
-
-
-def test_build_readiness_comment_negative_freshness():
-    assert (
-        build_readiness_comment(
-            freshness=-6.0,
-            recovery_score_simple=72.0,
-            recovery_explanation={
-                "sleep_score": 85.0,
-                "hrv_score": 79.0,
-                "rhr_score": 77.0,
-            },
-        )
-        == "Есть признаки накопленной усталости, сегодня лучше контролировать нагрузку."
-    )
-
-
 def test_build_readiness_briefing_message_uses_model_v2_fields():
     message = build_readiness_briefing_message(
         notification_date="2026-04-17",
@@ -289,6 +43,8 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
             "hrv_score": 42.1,
             "rhr_score": 49.5,
         },
+        briefing="Сегодня нормальная готовность. Рекомендуется спокойная аэробная тренировка.",
+        data_freshness={"state": "fresh"},
     )
 
     assert message == (
@@ -305,7 +61,7 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
         "• HRV: 42.1\n"
         "• Пульс покоя: 49.5\n\n"
         "Комментарий:\n"
-        "HRV ниже baseline, восстановление выглядит неполным."
+        "Сегодня нормальная готовность. Рекомендуется спокойная аэробная тренировка."
     )
 
 
@@ -409,6 +165,7 @@ def test_build_readiness_briefing_message_marks_stale_data():
         freshness=0.0,
         recovery_score_simple=50.0,
         recovery_explanation={},
+        briefing="Сегодня нормальная готовность. Рекомендуется спокойная аэробная тренировка.",
         data_freshness={"state": "stale"},
     )
 
@@ -837,47 +594,13 @@ def test_build_workout_comment_unknown():
     assert build_workout_comment("unknown", 50.0) == "Тип нагрузки пока не определен"
 
 
-def test_compute_training_impact_no_data():
-    result = compute_training_impact(None, None, 10.0, -5.0)
-
-    assert result["delta_fatigue"] is None
-    assert result["delta_freshness"] is None
-
-
-def test_compute_training_impact_with_values():
-    result = compute_training_impact(
-        prev_fatigue=20.0,
-        prev_freshness=-4.0,
-        new_fatigue=27.5,
-        new_freshness=-10.5,
-    )
-
-    assert result["delta_fatigue"] == 7.5
-    assert result["delta_freshness"] == -6.5
-
-
-def test_describe_training_impact_no_data():
-    assert describe_training_impact(None, None) == "Недостаточно данных для оценки влияния"
-
-
-def test_describe_training_impact_strong_load():
-    assert describe_training_impact(9.0, -7.0) == "Сильная нагрузка, значительный рост усталости"
-
-
-def test_describe_training_impact_noticeable_load():
-    assert describe_training_impact(5.0, -4.0) == "Заметная тренировочная нагрузка"
-
-
-def test_describe_training_impact_moderate_load():
-    assert describe_training_impact(2.0, -2.0) == "Умеренная нагрузка"
-
-
-def test_describe_training_impact_light_load():
-    assert describe_training_impact(0.5, -0.5) == "Легкая нагрузка"
-
-
 class _FakeTrainingProcessedCursor:
-    def __init__(self, activity_row, state_rows, readiness_row=(63.2, "Готовность из модели")) -> None:
+    def __init__(
+        self,
+        activity_row,
+        state_rows,
+        readiness_row=(63.2, 0.632, "Готовность из модели", {}),
+    ) -> None:
         self.readiness_row = readiness_row
         self.execute_calls = []
         self.activity_row = activity_row
@@ -991,11 +714,14 @@ def test_build_training_processed_message_for_supported_cycling_activity(monkeyp
     assert "Load model: power_tss" in message
     assert "Fatigue: 31.00" in message
     assert "Freshness: -4.00" in message
-    assert "Readiness: 63.2/100" in message
+    assert "Готовность: 63.2/100" in message
     assert "FTP в расчёте: 250.0 W" in message
     assert "Impact" not in message
-    assert "Готовность из модели" in message
+    assert "Сегодня готовность из модели. Рекомендуется умеренная аэробная тренировка." in message
     assert "daily_fitness_state" not in str(fake_cursor.execute_calls)
+    assert "activity_metrics" in fake_cursor.execute_calls[0][0]
+    assert "load_state_daily_v2" in fake_cursor.execute_calls[1][0]
+    assert "readiness_daily" in fake_cursor.execute_calls[2][0]
     assert fake_cursor.execute_calls[-1][1] == ("user-1", "2026-04-17", READINESS_MODEL_VERSION)
 
 
@@ -1046,6 +772,7 @@ def test_briefing_without_physiology_has_no_empty_wearable_rows():
         readiness_score=63.2, status_text='Нормальная готовность',
         good_day_probability=0.632, freshness=2.1,
         recovery_score_simple=None, recovery_explanation={},
+        briefing='Сегодня нормальная готовность. Рекомендуется умеренная аэробная тренировка.',
         data_freshness={'state': 'missing'},
     )
     assert 'Готовность: 63.2' in message
@@ -1059,6 +786,7 @@ def test_briefing_historical_partial_physiology_shows_only_existing_scores():
         readiness_score=63.2, status_text='Нормальная готовность',
         good_day_probability=None, freshness=2.1,
         recovery_score_simple=70, recovery_explanation={'sleep_score': 0, 'hrv_score': None},
+        briefing='Сегодня нормальная готовность. Рекомендуется умеренная аэробная тренировка.',
         data_freshness={'state': 'fresh', 'provider': 'healthkit'},
     )
     assert 'historical' in message

@@ -1,4 +1,22 @@
-from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.decision_engine import (
+    build_persisted_readiness_briefing,
+    build_readiness_briefing,
+    build_recommendation,
+)
+
+
+def test_build_persisted_readiness_briefing_uses_current_readiness_output():
+    result = build_persisted_readiness_briefing(
+        readiness_score=63.2,
+        status_text="Нормальная готовность",
+        explanation={"freshness_norm": 52.0},
+    )
+
+    assert result == {
+        "briefing": "Сегодня нормальная готовность. Рекомендуется умеренная аэробная тренировка.",
+        "recommendation": "moderate",
+        "reason": "Readiness score is 63.2/100. Freshness is available at 52/100. Recommendation is moderate.",
+    }
 
 
 def test_build_recommendation_maps_recovery_zone():

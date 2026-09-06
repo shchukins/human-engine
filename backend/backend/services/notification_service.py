@@ -17,7 +17,7 @@ from backend.services.activity_deduplication_service import (
     release_activity_delivery_claim,
 )
 from backend.services.activity_load_service import resolve_activity_load
-from backend.services.decision_engine import build_readiness_briefing, build_recommendation
+from backend.services.decision_engine import build_persisted_readiness_briefing
 from backend.services.decision_context_snapshot import capture_decision_context_snapshot
 from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from backend.services.subjective_feedback_service import send_post_ride_rpe_request
@@ -109,61 +109,6 @@ def _physiology_availability_label(data_freshness: dict[str, Any] | None) -> str
     }.get(state, "unknown")
 
 
-def compute_readiness_score(freshness: float | None) -> int | None:
-    if freshness is None:
-        return None
-
-    score = round(50 + freshness * 5)
-    score = max(0, min(100, score))
-    return score
-
-
-def describe_readiness(score: int | None) -> str:
-    if score is None:
-        return "n/a"
-    if score <= 24:
-        return "Высокая усталость"
-    if score <= 44:
-        return "Нагрузка"
-    if score <= 64:
-        return "Нормальная готовность"
-    if score <= 84:
-        return "Хорошая готовность"
-    return "Очень свежий"
-
-
-def recommend_training(score: int | None, trend: str = "n/a") -> str:
-    if score is None:
-        return "Недостаточно данных"
-
-    if score <= 24:
-        return "Отдых или очень легкое восстановление"
-
-    if score <= 44:
-        if trend == "improving":
-            return "Легкая endurance тренировка, без интенсивности"
-        return "Легкая тренировка в восстановительном темпе"
-
-    if score <= 64:
-        if trend == "declining":
-            return "Спокойная endurance тренировка, лучше без интервальной работы"
-        if trend == "improving":
-            return "Можно делать умеренную тренировку"
-        return "Спокойная endurance тренировка"
-
-    if score <= 84:
-        if trend == "declining":
-            return "Умеренная тренировка, но без максимальной интенсивности"
-        if trend == "improving":
-            return "Хороший день для качественной тренировки"
-        return "Можно делать умеренную или качественную тренировку"
-
-    if trend == "declining":
-        return "Можно тренироваться интенсивно, но стоит контролировать самочувствие"
-
-    return "Подходит день для интенсивной тренировки"
-
-
 def classify_workout_type(
     intensity_factor: float | None,
     tss: float | None,
@@ -192,51 +137,6 @@ def classify_workout_type(
     return "vo2"
 
 
-def describe_training_impact(
-    delta_fatigue: float | None,
-    delta_freshness: float | None,
-) -> str:
-    if delta_fatigue is None or delta_freshness is None:
-        return "Недостаточно данных для оценки влияния"
-
-    if delta_fatigue >= 8:
-        return "Сильная нагрузка, значительный рост усталости"
-
-    if delta_fatigue >= 4:
-        return "Заметная тренировочная нагрузка"
-
-    if delta_fatigue >= 1:
-        return "Умеренная нагрузка"
-
-    if delta_fatigue < 1:
-        return "Легкая нагрузка"
-
-    return "Нагрузка не определена"
-
-
-def compute_training_impact(
-    prev_fatigue: float | None,
-    prev_freshness: float | None,
-    new_fatigue: float | None,
-    new_freshness: float | None,
-) -> dict:
-    if (
-        prev_fatigue is None
-        or prev_freshness is None
-        or new_fatigue is None
-        or new_freshness is None
-    ):
-        return {
-            "delta_fatigue": None,
-            "delta_freshness": None,
-        }
-
-    return {
-        "delta_fatigue": new_fatigue - prev_fatigue,
-        "delta_freshness": new_freshness - prev_freshness,
-    }
-
-
 def build_workout_comment(workout_type: str, tss: float | None) -> str:
     if workout_type == "recovery":
         return "Легкая восстановительная сессия"
@@ -261,113 +161,6 @@ def build_workout_comment(workout_type: str, tss: float | None) -> str:
     return "Тип нагрузки пока не определен"
 
 
-def build_briefing_text(
-    score: int | None,
-    trend: str,
-    yesterday_load: float | None,
-    last_workout_tss: float | None,
-) -> str:
-    if score is None:
-        return "Недостаточно данных для интерпретации состояния."
-
-    heavy_recent_load = False
-
-    if yesterday_load is not None and yesterday_load >= 60:
-        heavy_recent_load = True
-
-    if last_workout_tss is not None and last_workout_tss >= 80:
-        heavy_recent_load = True
-
-    if score <= 24:
-        if trend == "declining":
-            return "Сегодня лучше восстановиться. Свежесть низкая, тренд ухудшается."
-        if heavy_recent_load:
-            return "Сегодня лучше восстановиться. Недавняя нагрузка была высокой."
-        return "Сегодня лучше восстановиться. Организм выглядит утомленным."
-
-    if score <= 44:
-        if trend == "improving":
-            return "Состояние еще ограничено, но есть признаки восстановления."
-        return "Состояние умеренно утомленное. Лучше держать нагрузку легкой."
-
-    if score <= 64:
-        if trend == "declining":
-            return "Состояние нормальное, но тренд ухудшается. Лучше не форсировать нагрузку."
-        if trend == "improving":
-            return "Состояние нормальное и улучшается. Подходит день для умеренной тренировки."
-        return "Состояние нормальное. Подходит день для спокойной endurance тренировки."
-
-    if score <= 84:
-        if trend == "declining":
-            return "Состояние хорошее, но тренд не улучшается. Лучше избегать максимальной интенсивности."
-        if heavy_recent_load:
-            return "Состояние хорошее, но недавняя нагрузка была заметной. Контролируй самочувствие."
-        return "Хороший день для качественной работы."
-
-    if trend == "declining":
-        return "Состояние очень хорошее, но тренд снижается. Интенсивность допустима, но без лишнего риска."
-
-    return "Очень хороший день для интенсивной тренировки."
-
-
-def build_readiness_comment(
-    freshness: float | None,
-    recovery_score_simple: float | None,
-    recovery_explanation: dict[str, Any] | None,
-) -> str:
-    recovery_explanation = recovery_explanation or {}
-
-    sleep_score = _float_or_none(recovery_explanation.get("sleep_score"))
-    hrv_score = _float_or_none(recovery_explanation.get("hrv_score"))
-    rhr_score = _float_or_none(recovery_explanation.get("rhr_score"))
-
-    scores = {
-        "sleep": sleep_score,
-        "hrv": hrv_score,
-        "rhr": rhr_score,
-    }
-    available_scores = {
-        key: value for key, value in scores.items() if value is not None
-    }
-
-    if (
-        freshness is not None
-        and freshness >= 5
-        and recovery_score_simple is not None
-        and recovery_score_simple >= 70
-    ):
-        return "Состояние выглядит хорошим: и свежесть, и восстановление на хорошем уровне."
-
-    if freshness is not None and freshness <= -5:
-        return "Есть признаки накопленной усталости, сегодня лучше контролировать нагрузку."
-
-    if not available_scores:
-        return "Восстановление выглядит стабильно, но деталей по breakdown пока недостаточно."
-
-    min_score = min(available_scores.values())
-    max_score = max(available_scores.values())
-
-    if min_score >= 75:
-        return "Восстановление выглядит хорошим по основным сигналам."
-
-    lowest_component = min(
-        available_scores,
-        key=available_scores.get,
-    )
-
-    if lowest_component == "sleep":
-        return "Основной ограничивающий фактор сегодня — сон."
-    if lowest_component == "hrv":
-        return "HRV ниже baseline, восстановление выглядит неполным."
-    if lowest_component == "rhr":
-        return "Пульс покоя выше обычного, это может указывать на неполное восстановление."
-
-    if max_score >= 75:
-        return "Часть recovery signals выглядит хорошо, но есть один ограничивающий фактор."
-
-    return "Состояние смешанное: recovery signals расходятся между собой."
-
-
 def build_readiness_briefing_message(
     *,
     notification_date: Any,
@@ -378,7 +171,7 @@ def build_readiness_briefing_message(
     freshness: float | None,
     recovery_score_simple: float | None,
     recovery_explanation: dict[str, Any] | None,
-    briefing: str | None = None,
+    briefing: str,
     data_freshness: dict[str, Any] | None = None,
 ) -> str:
     recovery_explanation = recovery_explanation or {}
@@ -414,11 +207,7 @@ def build_readiness_briefing_message(
         lines.extend(["", f"Свежесть: {_fmt(freshness, 1)}"])
     if physiology_lines:
         lines.extend(["", *physiology_lines])
-    comment = briefing
-    if comment is None:
-        comment = (build_readiness_comment(freshness, recovery_score_simple, recovery_explanation)
-                   if physiology_lines else "Оценка основана на доступных данных о нагрузке и самочувствии.")
-    lines.extend(["", "Комментарий:", comment])
+    lines.extend(["", "Комментарий:", briefing])
     return "\n".join(lines)
 
 
@@ -458,23 +247,6 @@ def get_physiology_data_freshness(
     }
 
 
-def describe_freshness_trend(values: list[float]) -> str:
-    if len(values) < 2:
-        return "n/a"
-
-    first_value = values[0]
-    last_value = values[-1]
-    delta = last_value - first_value
-
-    if delta >= 2:
-        return "improving"
-
-    if delta <= -2:
-        return "declining"
-
-    return "stable"
-
-
 def build_training_processed_message(user_id: str, activity_id: int) -> str:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -505,7 +277,8 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
             )
             state_row = cur.fetchone()
             cur.execute(
-                """select readiness_score, status_text from readiness_daily
+                """select readiness_score, good_day_probability, status_text, explanation_json
+                   from readiness_daily
                    where user_id = %s and date = %s and version = %s;""",
                 (user_id, state_date, READINESS_MODEL_VERSION),
             )
@@ -547,9 +320,16 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
         else:
             lines.append("Состояние нагрузки пока не рассчитано")
         if readiness_row and readiness_row[0] is not None:
-            lines.append(f"Readiness: {_fmt(readiness_row[0], 1)}/100")
-            if readiness_row[1]:
-                lines.append(f"Статус: {readiness_row[1]}")
+            readiness_score, _, status_text, explanation_json = readiness_row
+            decision_briefing = build_persisted_readiness_briefing(
+                readiness_score=_float_or_none(readiness_score),
+                status_text=status_text,
+                explanation=_as_dict(explanation_json),
+            )
+            lines.extend([
+                f"Готовность: {_fmt(_float_or_none(readiness_score), 1)}/100",
+                f"Рекомендация: {decision_briefing['briefing']}",
+            ])
         else:
             lines.append("Готовность пока не рассчитана")
     lines.extend(["", f"activity_id: {activity_id}"])
@@ -606,22 +386,9 @@ def build_daily_readiness_message(
                     explanation.get("recovery_explanation")
                 )
                 score = _float_or_none(readiness_score)
-                decision = (
-                    build_recommendation(
-                        readiness_score=score,
-                        explanation=explanation,
-                    )
-                    if score is not None
-                    else {
-                        "recommendation": "insufficient_data",
-                        "reason": "Readiness data is missing, so the recommendation is conservative.",
-                    }
-                )
-                readiness_briefing = build_readiness_briefing(
+                decision_briefing = build_persisted_readiness_briefing(
                     readiness_score=score,
                     status_text=status_text,
-                    recommendation=decision["recommendation"],
-                    reason=decision["reason"],
                     explanation=explanation,
                 )
 
@@ -636,7 +403,7 @@ def build_daily_readiness_message(
                         explanation.get("recovery_score_simple")
                     ),
                     recovery_explanation=recovery_explanation,
-                    briefing=readiness_briefing["briefing"],
+                    briefing=decision_briefing["briefing"],
                     data_freshness=data_freshness,
                 )
 

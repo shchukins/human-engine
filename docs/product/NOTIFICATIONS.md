@@ -55,6 +55,12 @@ Source of truth:
 - `readiness_daily.explanation_json`
 - deterministic recommendation / briefing output
 
+`decision_engine.build_persisted_readiness_briefing` is the shared contract
+for a persisted current-version readiness output. The readiness API, daily
+Telegram delivery, and activity-processed delivery consume its recommendation,
+reason, and Russian briefing; delivery code does not compose a second
+recommendation from freshness, trends, or recovery fields.
+
 Важно:
 
 - scheduled orchestration materializes readiness before invoking notification delivery
@@ -127,6 +133,10 @@ Physiology availability в сообщении:
 Сообщение после тренировки читает сохранённые `activity_metrics`,
 `load_state_daily_v2` и `readiness_daily` для дня активности. Оно не выводит
 legacy `daily_fitness_state` и не пересчитывает readiness из freshness.
+
+Если current-version readiness materialized, оно добавляет тот же
+deterministic briefing contract, что и daily notification. Если строки нет,
+сообщение не подставляет synthetic score или fallback recommendation.
 
 Для проверки power-derived нагрузки сообщение показывает FTP, сохранённый в
 provenance metrics. При отсутствии materialized state/readiness это прямо
