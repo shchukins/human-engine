@@ -567,3 +567,10 @@ Current V1 behavior:
 Current limitation:
 
 - scheduling is UTC-based because per-user timezone orchestration is not implemented yet
+
+## User profile
+
+Web Today includes `/today/profile` for independent dated FTP and weight inputs
+and explicit historical recalculation. Apply migration `011_user_profile.sql`
+before deploying this version to backend and worker. See
+[profile behavior and deployment](../docs/product/USER_PROFILE.md).

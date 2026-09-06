@@ -88,8 +88,10 @@ update только при изменении SHA-256 fingerprint полного
 
 Physiology availability в сообщении:
 
-- `fresh` — historical physiology существует для точной даты briefing
-- `missing` — physiology отсутствует и является штатным optional input
+- `fresh` — exact-date historical physiology существует для даты briefing;
+  показываются только имеющиеся recovery fields
+- `missing` или `stale` — это штатный optional input; строка physiology,
+  recovery score и пустые sleep/HRV/RHR placeholders не показываются
 
 Более старый historical recovery не переносится в текущий briefing.
 
@@ -110,8 +112,7 @@ Physiology availability в сообщении:
 - status text
 - good day probability
 - freshness
-- recovery score
-- recovery breakdown
+- recovery score и breakdown, только если для этой даты есть historical data
 - короткий deterministic комментарий
 
 Нельзя:
@@ -119,6 +120,19 @@ Physiology availability в сообщении:
 - превращать сообщение в dump внутренних формул
 - показывать raw health data как основной текст
 - подменять readiness text генеративным слоем
+- выводить `n/a` вместо отсутствующего optional signal
+
+## 4.1 Activity processed notification
+
+Сообщение после тренировки читает сохранённые `activity_metrics`,
+`load_state_daily_v2` и `readiness_daily` для дня активности. Оно не выводит
+legacy `daily_fitness_state` и не пересчитывает readiness из freshness.
+
+Для проверки power-derived нагрузки сообщение показывает FTP, сохранённый в
+provenance metrics. При отсутствии materialized state/readiness это прямо
+обозначается как «пока не рассчитано», без подстановки старой формулы.
+Calendar-day impact deltas не показываются: они сравнивали daily states и не
+были причинной оценкой одной тренировки.
 
 ---
 

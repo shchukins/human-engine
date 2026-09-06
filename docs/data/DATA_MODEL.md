@@ -687,3 +687,16 @@ activity_subjective_feedback
 - как единообразно организовать versioning recovery layer
 
 См. `docs/architecture/OPEN_DECISIONS.md`.
+
+## User profile value history
+
+`user_profile_value` (migration `011_user_profile.sql`) stores independent dated
+manual inputs: `user_id`, `metric` (`ftp` or `weight`), `effective_from`, numeric
+`value`, `needs_recompute`, and `updated_at`. The primary key is
+`(user_id, metric, effective_from)`. Same-date saves correct an entry; unchanged
+FTP saves preserve the existing pending flag without scheduling new work.
+Changed FTP entries remain pending until successful recomputation. Historical
+FTP values are copied from the legacy training profile without overwriting
+existing entries. HealthKit records are not modified or repurposed.
+
+See [User profile](../product/USER_PROFILE.md) for date and recompute semantics.

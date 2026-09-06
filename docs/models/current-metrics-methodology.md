@@ -330,3 +330,15 @@ GoodDayProbability = Readiness / 100
 2. Recovery-контур уже baseline-aware, но readiness formula пока использует его как агрегированный score, а не как full multicomponent formula.
 3. `GoodDayProbability` пока является простым mapping от readiness score.
 4. Decision layer поверх readiness еще не откалиброван окончательно.
+
+## Dated FTP input
+
+Metric computation resolves FTP on the activity's local date in
+`WHATTE_TIMEZONE`, from independent `user_profile_value` FTP history, with a
+same-date-or-earlier legacy training profile fallback. Later FTP entries are
+never applied to earlier activities. TSS remains duration-hours × (NP/FTP)² × 100.
+The selected FTP is recorded in activity metric provenance. Missing FTP leaves
+power-derived load unavailable. Missing zone boundaries produce null zone times;
+FTP edits do not rescale legacy zones. Manual profile weight currently changes
+no load or readiness formula. Historical corrections require the explicit
+[profile recalculation](../product/USER_PROFILE.md) action.

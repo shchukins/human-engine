@@ -77,13 +77,13 @@ def compute_power_metrics(
 def compute_power_zones(
     watts_stream: list[Any],
     deltas: list[int],
-    power_z1_upper: float,
-    power_z2_upper: float,
-    power_z3_upper: float,
-    power_z4_upper: float,
-    power_z5_upper: float,
-    power_z6_upper: float,
-) -> dict[str, int]:
+    power_z1_upper: float | None,
+    power_z2_upper: float | None,
+    power_z3_upper: float | None,
+    power_z4_upper: float | None,
+    power_z5_upper: float | None,
+    power_z6_upper: float | None,
+) -> dict[str, int | None]:
     power_zones = {
         "z1": 0,
         "z2": 0,
@@ -93,6 +93,12 @@ def compute_power_zones(
         "z6": 0,
         "z7": 0,
     }
+
+    # An incomplete dated profile cannot assign meaningful zones. Preserve
+    # missing values rather than inventing boundaries from the edited FTP.
+    if any(v is None for v in (power_z1_upper, power_z2_upper, power_z3_upper,
+                               power_z4_upper, power_z5_upper, power_z6_upper)):
+        return {key: None for key in power_zones}
 
     if not watts_stream:
         return power_zones
@@ -129,7 +135,7 @@ def compute_hr_zones(
     hr_z2_upper: int | None,
     hr_z3_upper: int | None,
     hr_z4_upper: int | None,
-) -> dict[str, int]:
+) -> dict[str, int | None]:
     hr_zones = {
         "z1": 0,
         "z2": 0,
@@ -137,6 +143,9 @@ def compute_hr_zones(
         "z4": 0,
         "z5": 0,
     }
+
+    if any(v is None for v in (hr_z1_upper, hr_z2_upper, hr_z3_upper, hr_z4_upper)):
+        return {key: None for key in hr_zones}
 
     if not hr_stream:
         return hr_zones

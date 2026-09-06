@@ -593,6 +593,8 @@ def release_activity_delivery_claim(
 def recompute_after_activity_state_change(
     user_id: str,
     from_date: date | None,
+    *,
+    through_date: str | None = None,
 ) -> dict[str, Any]:
     from backend.services.fitness_service import recompute_fitness_state
     from backend.services.load_service import recompute_daily_load_all
@@ -601,7 +603,12 @@ def recompute_after_activity_state_change(
 
     load_result = recompute_daily_load_all(user_id)
     fitness_result = recompute_fitness_state(user_id)
-    load_state_result = recompute_load_state_daily_v2(user_id)
+    # Profile corrections must propagate across subsequent rest days as well.
+    load_state_result = (
+        recompute_load_state_daily_v2(user_id, through_date=through_date)
+        if through_date is not None
+        else recompute_load_state_daily_v2(user_id)
+    )
     if from_date is None:
         return {
             "load": load_result,

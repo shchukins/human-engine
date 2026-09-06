@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 from typing import Any, Iterator, Literal
+from zoneinfo import ZoneInfo
 
 from backend.config import settings
 from backend.db import get_conn
@@ -381,36 +382,43 @@ def build_readiness_briefing_message(
     data_freshness: dict[str, Any] | None = None,
 ) -> str:
     recovery_explanation = recovery_explanation or {}
-    physiology_label = _physiology_availability_label(data_freshness)
+    # Historical physiology is evidence only for its exact date. Absence is
+    # normal after collection retirement and should not create placeholder rows.
+    same_date = recovery_date is not None and str(recovery_date)[:10] == str(notification_date)[:10]
+    physiology_available = same_date and (data_freshness or {}).get("state", "fresh") == "fresh"
+    if not physiology_available:
+        recovery_score_simple = None
+        recovery_explanation = {}
 
-    lines = [
-        "WHATTE · Today",
-        "",
-        f"Дата briefing: {notification_date}",
-        f"Дата physiology-данных: {recovery_date or 'n/a'}",
-        f"Physiology: {physiology_label}",
-        "",
-        f"Готовность: {_fmt(readiness_score, 1)}",
-        f"Статус: {status_text or 'n/a'}",
-        f"Вероятность хорошего дня: {_fmt_percent(good_day_probability)}",
-        "",
-        f"Свежесть: {_fmt(freshness, 1)}",
-        f"Восстановление: {_fmt(recovery_score_simple, 1)}",
-        "",
-        "Восстановление:",
-        f"• Сон: {_fmt(_float_or_none(recovery_explanation.get('sleep_score')), 1)}",
-        f"• HRV: {_fmt(_float_or_none(recovery_explanation.get('hrv_score')), 1)}",
-        f"• Пульс покоя: {_fmt(_float_or_none(recovery_explanation.get('rhr_score')), 1)}",
-        "",
-        "Комментарий:",
-        briefing
-        or build_readiness_comment(
-            freshness=freshness,
-            recovery_score_simple=recovery_score_simple,
-            recovery_explanation=recovery_explanation,
-        ),
-    ]
-
+    lines = ["WHATTE · Today", "", f"Дата briefing: {notification_date}"]
+    physiology_lines = []
+    if recovery_score_simple is not None:
+        physiology_lines.append(f"Восстановление: {_fmt(recovery_score_simple, 1)}")
+    for key, label in (("sleep_score", "Сон"), ("hrv_score", "HRV"), ("rhr_score", "Пульс покоя")):
+        value = _float_or_none(recovery_explanation.get(key))
+        if value is not None:
+            physiology_lines.append(f"• {label}: {_fmt(value, 1)}")
+    if physiology_lines:
+        lines.extend([f"Дата physiology-данных: {recovery_date}",
+                      f"Physiology: {_physiology_availability_label(data_freshness or {'state': 'fresh'})}"])
+    lines.append("")
+    if readiness_score is not None:
+        lines.append(f"Готовность: {_fmt(readiness_score, 1)}")
+    else:
+        lines.append("Готовность пока не рассчитана")
+    if status_text:
+        lines.append(f"Статус: {status_text}")
+    if good_day_probability is not None:
+        lines.append(f"Вероятность хорошего дня: {_fmt_percent(good_day_probability)}")
+    if freshness is not None:
+        lines.extend(["", f"Свежесть: {_fmt(freshness, 1)}"])
+    if physiology_lines:
+        lines.extend(["", *physiology_lines])
+    comment = briefing
+    if comment is None:
+        comment = (build_readiness_comment(freshness, recovery_score_simple, recovery_explanation)
+                   if physiology_lines else "Оценка основана на доступных данных о нагрузке и самочувствии.")
+    lines.extend(["", "Комментарий:", comment])
     return "\n".join(lines)
 
 
@@ -472,176 +480,79 @@ def build_training_processed_message(user_id: str, activity_id: int) -> str:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select
-                    r.name,
-                    r.start_date,
-                    r.activity_type,
-                    m.duration_s,
-                    m.tss,
-                    m.normalized_power,
-                    m.intensity_factor,
-                    m.avg_power,
-                    m.avg_heartrate
+                select r.name, r.start_date, r.activity_type, m.duration_s,
+                       m.tss, m.normalized_power, m.intensity_factor,
+                       m.avg_power, m.avg_heartrate, m.raw_json->>'ftp_watts',
+                       (r.start_date at time zone 'UTC')::date
                 from strava_activity_raw r
                 left join activity_metrics m
-                  on m.strava_activity_id = r.strava_activity_id
-                 and m.version = 'v1'
-                where r.strava_activity_id = %s;
+                  on m.strava_activity_id = r.strava_activity_id and m.version = 'v1'
+                where r.strava_activity_id = %s and r.user_id = %s;
                 """,
-                (activity_id,),
+                (activity_id, user_id),
             )
             activity_row = cur.fetchone()
-
+            if not activity_row:
+                return f"WHATTE\n\nТренировка не найдена\nactivity_id: {activity_id}"
+            (name, start_date, activity_type, duration_s, tss, normalized_power,
+             intensity_factor, avg_power, avg_heartrate, ftp_watts, state_date) = activity_row
+            # Daily load is currently materialized on UTC dates. Use the exact
+            # activity day, never unrelated latest state after a historical ingest.
             cur.execute(
-                """
-                select
-                    fitness_signal,
-                    fatigue_signal,
-                    freshness_signal
-                from daily_fitness_state
-                where user_id = %s
-                order by date desc
-                limit 2;
-                """,
-                (user_id,),
-            )
-            state_rows = cur.fetchall()
-            
-            cur.execute(
-                """
-                select
-                    fitness_signal,
-                    fatigue_signal,
-                    freshness_signal
-                from daily_fitness_state
-                where user_id = %s
-                order by date desc
-                limit 1;
-                """,
-                (user_id,),
+                """select fitness, fatigue_total, freshness from load_state_daily_v2
+                   where user_id = %s and date = %s and version = 'v2';""",
+                (user_id, state_date),
             )
             state_row = cur.fetchone()
-
-    if not activity_row:
-        return f"WHATTE\n\nТренировка обработана\nactivity_id={activity_id}"
-
-    (
-        name,
-        start_date,
-        activity_type,
-        duration_s,
-        tss,
-        normalized_power,
-        intensity_factor,
-        avg_power,
-        avg_heartrate,
-    ) = activity_row
+            cur.execute(
+                """select readiness_score, status_text from readiness_daily
+                   where user_id = %s and date = %s and version = %s;""",
+                (user_id, state_date, READINESS_MODEL_VERSION),
+            )
+            readiness_row = cur.fetchone()
 
     load_info = resolve_activity_load(
-        activity_type=activity_type,
-        tss=tss,
-        normalized_power=normalized_power,
+        activity_type=activity_type, tss=tss, normalized_power=normalized_power,
         intensity_factor=intensity_factor,
     )
-
-    fitness = None
-    fatigue = None
-    freshness = None
-
-    prev_fatigue = None
-    prev_freshness = None
-
-    if state_rows:
-        # текущее состояние
-        fitness, fatigue, freshness = state_rows[0]
-
-        # предыдущее состояние
-        if len(state_rows) > 1:
-            _, prev_fatigue, prev_freshness = state_rows[1]
-
+    activity_time = (datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+                     if isinstance(start_date, str) else start_date)
+    if activity_time.tzinfo is None:
+        activity_time = activity_time.replace(tzinfo=timezone.utc)
+    local_time = activity_time.astimezone(ZoneInfo(settings.whatte_timezone))
+    lines = ["WHATTE", "", "✅ Тренировка обработана", name or "Без названия", "",
+             f"Дата: {local_time:%d.%m.%Y %H:%M %Z}"]
+    if duration_s and duration_s > 0:
+        lines.append(f"Длительность: {_format_duration(duration_s)}")
+    for label, value, digits, unit in (
+        ("TSS", tss, 1, ""), ("NP", normalized_power, 1, " W"),
+        ("IF", intensity_factor, 2, ""), ("FTP в расчёте", ftp_watts, 1, " W"),
+        ("Avg Power", avg_power, 1, " W"), ("Avg HR", avg_heartrate, 1, ""),
+    ):
+        value = _float_or_none(value)
+        if value is not None:
+            lines.append(f"{label}: {_fmt(value, digits)}{unit}")
     if not load_info["load_model_included"]:
-        lines = [
-            "WHATTE",
-            "",
-            "✅ Тренировка обработана",
-            f"{name or 'Без названия'}",
-            "",
-            f"Дата: {start_date}",
-            f"Длительность: {_format_duration(duration_s)}",
-            f"TSS: {_fmt(tss, 1)}",
-            f"NP: {_fmt(normalized_power, 1)} W",
-            f"IF: {_fmt(intensity_factor, 2)}",
-            f"Avg Power: {_fmt(avg_power, 1)} W",
-            f"Avg HR: {_fmt(avg_heartrate, 1)}",
-            "",
-            "Type: unsupported",
-            f"Load model: {load_info['load_source']}",
-            "Comment: Activity stored, but excluded from daily load aggregation and readiness impact because reliable load estimate is not available.",
-            "",
-            "Impact:",
-            "Unsupported and excluded",
-            "",
-            f"activity_id: {activity_id}",
-        ]
-
-        return "\n".join(lines)
-
-    readiness_score = compute_readiness_score(freshness)
-    readiness_text = describe_readiness(readiness_score)
-
-    impact = compute_training_impact(
-        prev_fatigue,
-        prev_freshness,
-        fatigue,
-        freshness,
-    )
-
-    impact_text = describe_training_impact(
-        impact["delta_fatigue"],
-        impact["delta_freshness"],
-    )
-
-    workout_type = classify_workout_type(
-        intensity_factor=intensity_factor,
-        tss=tss,
-        duration_s=duration_s,
-    )
-    workout_comment = build_workout_comment(workout_type, tss)
-
-    lines = [
-        "WHATTE",
-        "",
-        "✅ Тренировка обработана",
-        f"{name or 'Без названия'}",
-        "",
-        f"Дата: {start_date}",
-        f"Длительность: {_format_duration(duration_s)}",
-        f"TSS: {_fmt(tss, 1)}",
-        f"NP: {_fmt(normalized_power, 1)} W",
-        f"IF: {_fmt(intensity_factor, 2)}",
-        f"Avg Power: {_fmt(avg_power, 1)} W",
-        f"Avg HR: {_fmt(avg_heartrate, 1)}",
-        "",
-        f"Type: {workout_type}",
-        f"Load model: {load_info['load_source']}",
-        f"Comment: {workout_comment}",
-        "",
-        "Impact",
-        f"Fatigue Δ: {_fmt(impact['delta_fatigue'], 2)}",
-        f"Freshness Δ: {_fmt(impact['delta_freshness'], 2)}",
-        f"{impact_text}",
-        "",
-        "Состояние после обновления",
-        f"Fitness: {_fmt(fitness, 2)}",
-        f"Fatigue: {_fmt(fatigue, 2)}",
-        f"Freshness: {_fmt(freshness, 2)}",
-        "",
-        f"Readiness: {readiness_score if readiness_score is not None else 'n/a'}/100",
-        f"Статус: {readiness_text}",
-        "",
-        f"activity_id: {activity_id}",
-    ]
-
+        lines.extend(["", "Type: unsupported", f"Load model: {load_info['load_source']}",
+                      "Нет надёжной оценки нагрузки: тренировка сохранена, но не включена в расчёт нагрузки и готовности."])
+    else:
+        workout_type = classify_workout_type(intensity_factor, tss, duration_s)
+        lines.extend(["", f"Type: {workout_type}", f"Load model: {load_info['load_source']}",
+                      f"Comment: {build_workout_comment(workout_type, tss)}", "",
+                      f"Состояние за {state_date} (UTC)"])
+        if state_row:
+            for label, value in zip(("Fitness", "Fatigue", "Freshness"), state_row):
+                if value is not None:
+                    lines.append(f"{label}: {_fmt(value, 2)}")
+        else:
+            lines.append("Состояние нагрузки пока не рассчитано")
+        if readiness_row and readiness_row[0] is not None:
+            lines.append(f"Readiness: {_fmt(readiness_row[0], 1)}/100")
+            if readiness_row[1]:
+                lines.append(f"Статус: {readiness_row[1]}")
+        else:
+            lines.append("Готовность пока не рассчитана")
+    lines.extend(["", f"activity_id: {activity_id}"])
     return "\n".join(lines)
 
 
@@ -652,13 +563,13 @@ def build_daily_readiness_message(
     recovery_date: date | None = None,
     data_freshness: dict[str, Any] | None = None,
 ) -> str:
-    target_recovery_date = recovery_date or notification_date
+    target_recovery_date = notification_date or recovery_date
     with get_conn() as conn:
         with conn.cursor() as cur:
             readiness_date_filter = ""
             params: tuple[Any, ...] = (user_id, READINESS_MODEL_VERSION)
             if target_recovery_date is not None:
-                readiness_date_filter = "and date <= %s"
+                readiness_date_filter = "and date = %s"
                 params = (user_id, READINESS_MODEL_VERSION, target_recovery_date)
 
             cur.execute(
@@ -729,142 +640,7 @@ def build_daily_readiness_message(
                     data_freshness=data_freshness,
                 )
 
-            cur.execute(
-                """
-                select
-                    date,
-                    fitness_signal,
-                    fatigue_signal,
-                    freshness_signal
-                from daily_fitness_state
-                where user_id = %s
-                order by date desc
-                limit 1;
-                """,
-                (user_id,),
-            )
-            row = cur.fetchone()
-
-            cur.execute(
-                """
-                select freshness_signal
-                from daily_fitness_state
-                where user_id = %s
-                order by date desc
-                limit 3;
-                """,
-                (user_id,),
-            )
-            trend_rows = cur.fetchall()
-
-            cur.execute(
-                """
-                select
-                    coalesce(tss, 0)
-                from daily_training_load
-                where user_id = %s
-                  and date = (
-                      select max(date) - interval '1 day'
-                      from daily_fitness_state
-                      where user_id = %s
-                  );
-                """,
-                (user_id, user_id),
-            )
-            yesterday_load_row = cur.fetchone()
-
-            cur.execute(
-                """
-                select count(*)
-                from daily_training_load
-                where user_id = %s
-                  and date >= (
-                      select max(date) - interval '2 day'
-                      from daily_fitness_state
-                      where user_id = %s
-                  )
-                  and tss > 0;
-                """,
-                (user_id, user_id),
-            )
-            recent_training_days_row = cur.fetchone()
-
-            cur.execute(
-                """
-                select
-                    date,
-                    tss
-                from daily_training_load
-                where user_id = %s
-                  and tss > 0
-                order by date desc
-                limit 1;
-                """,
-                (user_id,),
-            )
-            last_workout_row = cur.fetchone()
-
-    if not row:
-        return (
-            "WHATTE\n\n"
-            "📅 Daily Readiness Summary\n"
-            f"Physiology: {_physiology_availability_label(data_freshness)}\n"
-            "Недостаточно данных для расчета состояния"
-        )
-
-    date, fitness, fatigue, freshness = row
-
-    # В БД значения идут от новых к старым, а для тренда нам удобнее старые -> новые
-    trend_values = [r[0] for r in reversed(trend_rows)] if trend_rows else []
-    trend = describe_freshness_trend(trend_values)
-
-    yesterday_load = yesterday_load_row[0] if yesterday_load_row else 0
-    recent_training_days = recent_training_days_row[0] if recent_training_days_row else 0
-
-    last_workout_date = None
-    last_workout_tss = None
-
-    if last_workout_row:
-        last_workout_date, last_workout_tss = last_workout_row
-
-    readiness_score = compute_readiness_score(freshness)
-    readiness_text = describe_readiness(readiness_score)
-    recommendation = recommend_training(readiness_score, trend)
-
-    briefing = build_briefing_text(
-        readiness_score,
-        trend,
-        yesterday_load,
-        last_workout_tss,
-    )
-
-    lines = [
-        "WHATTE",
-        "",
-        "📅 Daily Readiness Summary",
-        f"Дата briefing: {notification_date or date}",
-        f"Дата physiology-данных: {recovery_date or 'n/a'}",
-        f"Physiology: {_physiology_availability_label(data_freshness)}",
-        "",
-        f"Fitness: {_fmt(fitness, 2)}",
-        f"Fatigue: {_fmt(fatigue, 2)}",
-        f"Freshness: {_fmt(freshness, 2)}",
-        f"Trend: {trend}",
-        "",
-        f"Yesterday load: {_fmt(yesterday_load, 1)} TSS",
-        f"Training days (3d): {recent_training_days}",
-        "",
-        f"Last workout: {_fmt(last_workout_tss, 1)} TSS",
-        f"Last workout date: {last_workout_date or 'n/a'}",
-        f"Readiness: {readiness_score if readiness_score is not None else 'n/a'}/100",
-        f"Статус: {readiness_text}",
-        "",
-        f"Briefing: {briefing}",
-        "",
-        f"Рекомендация: {recommendation}",
-    ]
-
-    return "\n".join(lines)
+    return "WHATTE · Today\n\nГотовность пока не рассчитана. Нет данных текущей модели за выбранную дату."
 
 
 def notify_training_processed(user_id: str, activity_id: int) -> bool:

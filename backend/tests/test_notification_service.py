@@ -1,3 +1,4 @@
+from backend.services.readiness_composition import READINESS_MODEL_VERSION
 from contextlib import nullcontext
 from datetime import date
 
@@ -294,13 +295,12 @@ def test_build_readiness_briefing_message_uses_model_v2_fields():
         "WHATTE · Today\n\n"
         "Дата briefing: 2026-04-17\n"
         "Дата physiology-данных: 2026-04-17\n"
-        "Physiology: unavailable (optional)\n\n"
+        "Physiology: available\n\n"
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
-        "Свежесть: 5.0\n"
-        "Восстановление: 56.5\n\n"
-        "Восстановление:\n"
+        "Свежесть: 5.0\n\n"
+        "Восстановление: 56.5\n"
         "• Сон: 82.8\n"
         "• HRV: 42.1\n"
         "• Пульс покоя: 49.5\n\n"
@@ -386,9 +386,8 @@ def test_build_daily_readiness_message_prefers_readiness_daily_v2(monkeypatch):
         "Готовность: 56.5\n"
         "Статус: Нормальная готовность\n"
         "Вероятность хорошего дня: 56%\n\n"
-        "Свежесть: 5.0\n"
-        "Восстановление: 56.5\n\n"
-        "Восстановление:\n"
+        "Свежесть: 5.0\n\n"
+        "Восстановление: 56.5\n"
         "• Сон: 82.8\n"
         "• HRV: 42.1\n"
         "• Пульс покоя: 49.5\n\n"
@@ -413,7 +412,9 @@ def test_build_readiness_briefing_message_marks_stale_data():
         data_freshness={"state": "stale"},
     )
 
-    assert "Physiology: unavailable for this date" in message
+    assert "Physiology:" not in message
+    assert "Восстановление:" not in message
+    assert "n/a" not in message
 
 
 class _FakeFreshnessCursor:
@@ -876,7 +877,9 @@ def test_describe_training_impact_light_load():
 
 
 class _FakeTrainingProcessedCursor:
-    def __init__(self, activity_row, state_rows) -> None:
+    def __init__(self, activity_row, state_rows, readiness_row=(63.2, "Готовность из модели")) -> None:
+        self.readiness_row = readiness_row
+        self.execute_calls = []
         self.activity_row = activity_row
         self.state_rows = state_rows
         self._last_query = ""
@@ -889,16 +892,19 @@ class _FakeTrainingProcessedCursor:
 
     def execute(self, query, params):
         self._last_query = query
+        self.execute_calls.append((query, params))
 
     def fetchone(self):
         if "from strava_activity_raw" in self._last_query:
             return self.activity_row
-        if "from daily_fitness_state" in self._last_query:
+        if "from load_state_daily_v2" in self._last_query:
             return self.state_rows[0] if self.state_rows else None
+        if "from readiness_daily" in self._last_query:
+            return self.readiness_row
         raise AssertionError(f"unexpected fetchone query: {self._last_query}")
 
     def fetchall(self):
-        if "from daily_fitness_state" in self._last_query:
+        if "from load_state_daily_v2" in self._last_query:
             return self.state_rows
         raise AssertionError(f"unexpected fetchall query: {self._last_query}")
 
@@ -929,6 +935,8 @@ def test_build_training_processed_message_for_unsupported_activity(monkeypatch):
             None,
             None,
             128.0,
+            None,
+            "2026-04-17",
         ),
         state_rows=[],
     )
@@ -943,11 +951,8 @@ def test_build_training_processed_message_for_unsupported_activity(monkeypatch):
 
     assert "Type: unsupported" in message
     assert "Load model: unsupported" in message
-    assert (
-        "Comment: Activity stored, but excluded from daily load aggregation and readiness impact because reliable load estimate is not available."
-        in message
-    )
-    assert "Impact:\nUnsupported and excluded" in message
+    assert "Нет надёжной оценки нагрузки" in message
+    assert "n/a" not in message
     assert "Fatigue Δ" not in message
     assert "Freshness Δ" not in message
     assert "Легкая нагрузка" not in message
@@ -965,6 +970,8 @@ def test_build_training_processed_message_for_supported_cycling_activity(monkeyp
             0.84,
             185.0,
             142.0,
+            "250",
+            "2026-04-17",
         ),
         state_rows=[
             (55.0, 31.0, -4.0),
@@ -982,8 +989,14 @@ def test_build_training_processed_message_for_supported_cycling_activity(monkeyp
 
     assert "Type: tempo" in message
     assert "Load model: power_tss" in message
-    assert "Fatigue Δ: 5.00" in message
-    assert "Freshness Δ: -4.50" in message
+    assert "Fatigue: 31.00" in message
+    assert "Freshness: -4.00" in message
+    assert "Readiness: 63.2/100" in message
+    assert "FTP в расчёте: 250.0 W" in message
+    assert "Impact" not in message
+    assert "Готовность из модели" in message
+    assert "daily_fitness_state" not in str(fake_cursor.execute_calls)
+    assert fake_cursor.execute_calls[-1][1] == ("user-1", "2026-04-17", READINESS_MODEL_VERSION)
 
 
 def test_notify_training_processed_sends_feedback_prompt(monkeypatch):
@@ -1025,3 +1038,60 @@ def test_notify_training_processed_sends_feedback_prompt(monkeypatch):
 
     assert sent_messages == ["processed:user-1:43"]
     assert feedback_prompts == [43]
+
+
+def test_briefing_without_physiology_has_no_empty_wearable_rows():
+    message = build_readiness_briefing_message(
+        notification_date='2026-09-05', recovery_date=None,
+        readiness_score=63.2, status_text='Нормальная готовность',
+        good_day_probability=0.632, freshness=2.1,
+        recovery_score_simple=None, recovery_explanation={},
+        data_freshness={'state': 'missing'},
+    )
+    assert 'Готовность: 63.2' in message
+    for absent in ['n/a', 'physiology', 'Physiology', 'Восстановление:', 'Сон:', 'HRV:', 'Пульс покоя:']:
+        assert absent not in message
+
+
+def test_briefing_historical_partial_physiology_shows_only_existing_scores():
+    message = build_readiness_briefing_message(
+        notification_date='2026-04-17', recovery_date='2026-04-17',
+        readiness_score=63.2, status_text='Нормальная готовность',
+        good_day_probability=None, freshness=2.1,
+        recovery_score_simple=70, recovery_explanation={'sleep_score': 0, 'hrv_score': None},
+        data_freshness={'state': 'fresh', 'provider': 'healthkit'},
+    )
+    assert 'historical' in message
+    assert '• Сон: 0.0' in message
+    assert 'HRV:' not in message
+    assert 'n/a' not in message
+
+
+def test_training_missing_current_readiness_does_not_synthesize_legacy_score(monkeypatch):
+    cur = _FakeTrainingProcessedCursor(
+        activity_row=('Ride', '2026-09-05T15:34:31Z', 'Ride', 5406, 69.7, 151.2,
+                      .681, 148.5, 126.4, '222', '2026-09-05'),
+        state_rows=[(44.34, 44.98, -.64)], readiness_row=None,
+    )
+    monkeypatch.setattr('backend.services.notification_service.get_conn', lambda: _FakeTrainingProcessedConn(cur))
+    message = build_training_processed_message('user-1', 20050243406)
+    assert 'Готовность пока не рассчитана' in message
+    assert 'Readiness: 47' not in message
+    assert 'FTP в расчёте: 222.0 W' in message
+    assert 'Type: endurance' in message
+    assert '05.09.2026 18:34' in message
+    assert 'n/a' not in message
+
+
+def test_daily_missing_current_model_does_not_query_legacy_state(monkeypatch):
+    class Cursor(_FakeDailyReadinessCursor):
+        def fetchone(self):
+            return None
+    cur = Cursor()
+    monkeypatch.setattr('backend.services.notification_service.get_conn', lambda: _FakeDailyReadinessConn(cur))
+    message = build_daily_readiness_message('user-1', notification_date=date(2026, 9, 5), recovery_date=date(2026, 4, 17))
+    assert 'Готовность пока не рассчитана' in message
+    assert len(cur.execute_calls) == 1
+    query, params = cur.execute_calls[0]
+    assert 'and date = %s' in query
+    assert params[-1] == date(2026, 9, 5)

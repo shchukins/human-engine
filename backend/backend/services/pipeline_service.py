@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from backend.db import get_conn
+from backend.services.user_profile_service import resolve_activity_profile
 from backend.services.activity_deduplication_service import (
     detect_and_apply_duplicate,
     recompute_after_activity_state_change,
@@ -238,35 +239,7 @@ def compute_and_store_activity_metrics(activity_id: int) -> dict[str, Any]:
 
             # Загружаем тренировочный профиль пользователя:
             # FTP и границы зон мощности/пульса
-            cur.execute(
-                """
-                select
-                    ftp_watts,
-                    hr_max,
-                    power_z1_upper,
-                    power_z2_upper,
-                    power_z3_upper,
-                    power_z4_upper,
-                    power_z5_upper,
-                    power_z6_upper,
-                    hr_z1_upper,
-                    hr_z2_upper,
-                    hr_z3_upper,
-                    hr_z4_upper
-                from user_training_profile
-                where user_id = %s
-                order by effective_from desc
-                limit 1;
-                """,
-                (user_id,),
-            )
-            profile_row = cur.fetchone()
-
-            if not profile_row:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"user_training_profile not found for user_id={user_id}",
-                )
+            profile_row = resolve_activity_profile(cur, user_id, activity_id)
 
             (
                 ftp_watts,

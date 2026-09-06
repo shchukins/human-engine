@@ -18,6 +18,7 @@ from backend.core.logging import configure_logging, log_event
 from backend.dashboard import router as dashboard_router
 from backend.today import router as today_router
 from backend.db import get_conn
+from backend.services.user_profile_service import resolve_activity_profile
 from backend.services.fitness_service import recompute_fitness_state
 from backend.services.ingest_service import process_one_strava_ingest_job
 from backend.services.load_service import recompute_daily_load_all
@@ -675,35 +676,7 @@ def debug_compute_activity_metrics(activity_id: int):
                     work_kj,
                 ) = raw_row
 
-                cur.execute(
-                    """
-                    select
-                        ftp_watts,
-                        hr_max,
-                        power_z1_upper,
-                        power_z2_upper,
-                        power_z3_upper,
-                        power_z4_upper,
-                        power_z5_upper,
-                        power_z6_upper,
-                        hr_z1_upper,
-                        hr_z2_upper,
-                        hr_z3_upper,
-                        hr_z4_upper
-                    from user_training_profile
-                    where user_id = %s
-                    order by effective_from desc
-                    limit 1;
-                    """,
-                    (user_id,),
-                )
-                profile_row = cur.fetchone()
-
-                if not profile_row:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"user_training_profile not found for user_id={user_id}",
-                    )
+                profile_row = resolve_activity_profile(cur, user_id, activity_id)
 
                 (
                     ftp_watts,
